@@ -106,6 +106,19 @@ class LicenseResponse(BaseModel):
     expires_at: datetime
     issued_at: datetime
 
+    # Backward-compatible envelope fields for POS clients expecting IAMLicenseActivationResponse
+    is_valid: bool = True
+    device_status: str = "ACTIVE"
+    license_status: str = "ACTIVE"
+    license: Optional[dict] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.license is None:
+            self.license = {
+                "signed_payload": self.signed_payload,
+                "signature": self.signature,
+            }
+
 
 class OfflineLicensePayload(BaseModel):
     license_id: str
