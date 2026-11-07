@@ -130,11 +130,16 @@ class CommercialAndLicensingService:
             )
         )
         res_dev = await db.execute(stmt_dev)
-        if res_dev.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This physical device fingerprint is already registered in this organization.",
-            )
+        existing_device = res_dev.scalar_one_or_none()
+        if existing_device:
+            # Idempotent re-registration / terminal key update
+            existing_device.name = req.name
+            existing_device.public_key = req.public_key
+            existing_device.status = DeviceStatus.ACTIVE
+            existing_device.last_heartbeat_at = datetime.now(timezone.utc)
+            await db.commit()
+            await db.refresh(existing_device)
+            return existing_device
 
         device = Device(
             organization_id=req.organization_id,
