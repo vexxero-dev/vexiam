@@ -183,10 +183,26 @@ class CommercialAndLicensingService:
                 detail="Only organization owners and administrators can activate licenses.",
             )
 
-        # Load Application
-        stmt_app = select(Application).where(Application.id == req.application_id)
-        res_app = await db.execute(stmt_app)
-        app = res_app.scalar_one_or_none()
+        # Load Application - supports UUID or application code (e.g. 'VEX-POS' / 'vexxero-pos')
+        app = None
+        if req.application_id:
+            try:
+                parsed_uuid = uuid.UUID(str(req.application_id))
+                stmt_app = select(Application).where(Application.id == parsed_uuid)
+                res_app = await db.execute(stmt_app)
+                app = res_app.scalar_one_or_none()
+            except ValueError:
+                code_norm = str(req.application_id).strip().upper().replace("VEXXERO", "VEX")
+                stmt_app = select(Application).where(func.upper(Application.code) == code_norm)
+                res_app = await db.execute(stmt_app)
+                app = res_app.scalar_one_or_none()
+
+        if not app:
+            # Default fallback to POS application
+            stmt_default = select(Application).where(Application.code == "VEX-POS")
+            res_default = await db.execute(stmt_default)
+            app = res_default.scalar_one_or_none()
+
         if not app or not app.is_active:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -348,7 +364,7 @@ class CommercialAndLicensingService:
 
     @staticmethod
     async def process_heartbeat(
-        db: AsyncSession, device_id: uuid.UUID, fingerprint: str, app_id: uuid.UUID | None = None
+        db: AsyncSession, device_id: uuid.UUID, fingerprint: str, app_id: str | uuid.UUID | None = None
     ) -> dict:
         stmt_dev = select(Device).where(Device.id == device_id)
         res_dev = await db.execute(stmt_dev)
@@ -382,13 +398,32 @@ class CommercialAndLicensingService:
         now = datetime.now(timezone.utc)
         device.last_heartbeat_at = now
 
-        # If application specified, check and renew/extend license
-        target_license = None
+        # Resolve application if passed as code or UUID
+        app = None
         if app_id:
+            try:
+                parsed_uuid = uuid.UUID(str(app_id))
+                stmt_app = select(Application).where(Application.id == parsed_uuid)
+                res_app = await db.execute(stmt_app)
+                app = res_app.scalar_one_or_none()
+            except ValueError:
+                code_norm = str(app_id).strip().upper().replace("VEXXERO", "VEX")
+                stmt_app = select(Application).where(func.upper(Application.code) == code_norm)
+                res_app = await db.execute(stmt_app)
+                app = res_app.scalar_one_or_none()
+
+        if not app:
+            stmt_default = select(Application).where(Application.code == "VEX-POS")
+            res_default = await db.execute(stmt_default)
+            app = res_default.scalar_one_or_none()
+
+        # Check and renew/extend license
+        target_license = None
+        if app:
             stmt_lic = select(DeviceLicense).where(
                 and_(
                     DeviceLicense.device_id == device.id,
-                    DeviceLicense.application_id == app_id,
+                    DeviceLicense.application_id == app.id,
                 )
             ).order_by(DeviceLicense.issued_at.desc())
             res_lic = await db.execute(stmt_lic)
@@ -407,17 +442,13 @@ class CommercialAndLicensingService:
                 }
 
             # Check organization subscription
-            stmt_app = select(Application).where(Application.id == app_id)
-            res_app = await db.execute(stmt_app)
-            app = res_app.scalar_one_or_none()
-
             stmt_sub = (
                 select(Subscription)
                 .join(Plan, Subscription.plan_id == Plan.id)
                 .where(
                     and_(
                         Subscription.organization_id == device.organization_id,
-                        Plan.application_id == app_id,
+                        Plan.application_id == app.id,
                         Subscription.status == SubscriptionStatus.ACTIVE,
                     )
                 )

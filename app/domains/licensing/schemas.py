@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
+from typing import Optional, Any
 from app.domains.subscriptions.models import OwnerType, SubscriptionStatus
 from app.domains.licensing.models import DeviceStatus, LicenseStatus
 
@@ -62,6 +62,7 @@ class DeviceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    device_id: Optional[uuid.UUID] = None  # Alias for backward-compatible client SDKs
     organization_id: uuid.UUID
     name: str
     fingerprint: str
@@ -69,15 +70,19 @@ class DeviceResponse(BaseModel):
     last_heartbeat_at: Optional[datetime] = None
     created_at: datetime
 
+    def model_post_init(self, __context: Any) -> None:
+        if self.device_id is None:
+            self.device_id = self.id
+
 
 class LicenseIssueRequest(BaseModel):
     device_id: uuid.UUID
-    application_id: uuid.UUID
+    application_id: Optional[str] = None  # Accepts UUID string or application code (e.g., 'VEX-POS' / 'vexxero-pos')
 
 
 class DeviceHeartbeatRequest(BaseModel):
     fingerprint: str = Field(..., min_length=8, max_length=128)
-    application_id: Optional[uuid.UUID] = None
+    application_id: Optional[str] = None
 
 
 class DeviceHeartbeatResponse(BaseModel):
