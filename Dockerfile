@@ -20,11 +20,12 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir . greenlet
 
-# Copy project source code
-COPY . .
+# Copy project source code (excluding web frontend from backend image)
+COPY app ./app
+COPY pyproject.toml README.md ./
 
-# Expose port (Railway dynamically injects $PORT)
-EXPOSE ${PORT}
+# Expose default port
+EXPOSE 8000
 
-# Run FastAPI app with uvicorn listening on 0.0.0.0 and dynamic $PORT
+# Run FastAPI app with uvicorn directly referencing $PORT
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
