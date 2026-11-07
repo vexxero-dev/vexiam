@@ -6,7 +6,8 @@ from app.domains.organizations.router import router as organization_router
 from app.domains.applications.router import router as application_router
 from app.domains.licensing.router import router as licensing_router
 from app.core.security import get_public_key_pem
-from app.core.database import engine, Base
+from app.core.database import engine, Base, AsyncSessionLocal
+from app.core.seeds import seed_vexxero_defaults
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
@@ -14,6 +15,11 @@ async def lifespan(app: FastAPI):
     # Automatically create missing database tables on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    
+    # Automatically seed official Vexxero ecosystem apps and default plans
+    async with AsyncSessionLocal() as session:
+        await seed_vexxero_defaults(session)
+        
     yield
 
 app = FastAPI(

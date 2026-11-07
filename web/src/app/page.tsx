@@ -49,6 +49,7 @@ interface Application {
   id: string;
   code: string;
   name: string;
+  description?: string;
   type: string;
 }
 
@@ -680,64 +681,54 @@ export default function VexIAMApp() {
         {activeTab === "apps" && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-              <h2 className="text-lg font-bold text-white mb-4">Vexxero Ecosystem Applications</h2>
-              <p className="text-xs text-slate-400 mb-6">
-                Connected applications verified and authorized via VEX IAM OAuth 2.1 / OIDC.
-              </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-indigo-400" />
+                    <span>Official Vexxero Ecosystem Applications</span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Verified first-party software authorized and integrated with VEX IAM OAuth 2.1 / OIDC. Managed centrally by Vexxero Technologies.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Verified Ecosystem
+                  </span>
+                </div>
+              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {applications.map((app) => (
                   <div
                     key={app.id}
-                    className="p-5 bg-slate-800/40 border border-slate-700/70 rounded-xl"
+                    className="p-5 bg-slate-800/40 border border-slate-700/60 rounded-xl hover:border-slate-600 transition flex flex-col justify-between"
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                        {app.code}
-                      </span>
-                      <span className="text-[10px] text-slate-400">{app.type}</span>
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded border border-indigo-500/20">
+                          {app.code}
+                        </span>
+                        <span className="text-[11px] font-medium text-slate-400 px-2 py-0.5 rounded bg-slate-800 border border-slate-700">
+                          {app.type}
+                        </span>
+                      </div>
+                      <h3 className="font-semibold text-base text-white mb-2">{app.name}</h3>
+                      <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                        {app.description || "Official client integrated with VEX IAM authentication and access control."}
+                      </p>
                     </div>
-                    <h3 className="font-semibold text-sm text-white mb-1">{app.name}</h3>
+
+                    <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                        VEX IAM Ready
+                      </span>
+                      <span className="font-mono text-[10px]">Ed25519 / OIDC</span>
+                    </div>
                   </div>
                 ))}
-              </div>
-
-              {/* Register New Application Form */}
-              <div className="border-t border-slate-800 pt-6">
-                <h3 className="text-sm font-bold text-white mb-4">Register New Ecosystem Application</h3>
-                <form onSubmit={handleRegisterApp} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <input
-                    type="text"
-                    required
-                    value={newAppCode}
-                    onChange={(e) => setNewAppCode(e.target.value)}
-                    placeholder="App Code (e.g. VEX-PMS)"
-                    className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-                  />
-                  <input
-                    type="text"
-                    required
-                    value={newAppName}
-                    onChange={(e) => setNewAppName(e.target.value)}
-                    placeholder="App Name"
-                    className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-                  />
-                  <select
-                    value={newAppType}
-                    onChange={(e) => setNewAppType(e.target.value)}
-                    className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-                  >
-                    <option value="WEB">WEB</option>
-                    <option value="LOCAL_HYBRID">LOCAL_HYBRID (POS)</option>
-                    <option value="MOBILE">MOBILE</option>
-                  </select>
-                  <button
-                    type="submit"
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold py-2"
-                  >
-                    Register Application
-                  </button>
-                </form>
               </div>
             </div>
           </div>
