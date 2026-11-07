@@ -1,5 +1,5 @@
 from app.domains.applications.models import Application, ApplicationType
-from app.domains.subscriptions.models import Plan, OwnerType
+from app.domains.subscriptions.models import Plan
 from sqlalchemy import select
 
 DEFAULT_ECOSYSTEM_APPS = [
@@ -31,47 +31,40 @@ DEFAULT_ECOSYSTEM_APPS = [
 
 DEFAULT_PLANS = [
     {
-        "code": "STARTER",
-        "name": "Starter Plan",
-        "description": "Ideal for single-location businesses starting out.",
-        "max_seats": 3,
-        "max_devices": 1,
-        "price_cents": 2900,
-        "currency": "USD",
-        "billing_interval": "month",
-        "owner_type": OwnerType.ORGANIZATION,
+        "app_code": "VEX-POS",
+        "code": "POS-STARTER",
+        "name": "Starter POS",
+        "description": "Single terminal with 3 operator seats.",
+        "user_seats": 3,
+        "device_seats": 1,
     },
     {
-        "code": "GROWTH",
-        "name": "Growth Business",
-        "description": "Multi-terminal operations with expanding teams and full ecosystem access.",
-        "max_seats": 10,
-        "max_devices": 3,
-        "price_cents": 7900,
-        "currency": "USD",
-        "billing_interval": "month",
-        "owner_type": OwnerType.ORGANIZATION,
+        "app_code": "VEX-POS",
+        "code": "POS-GROWTH",
+        "name": "Growth POS",
+        "description": "Multi-terminal operations with 10 operator seats and 3 terminal activations.",
+        "user_seats": 10,
+        "device_seats": 3,
     },
     {
-        "code": "ENTERPRISE",
-        "name": "Enterprise Suite",
-        "description": "High-velocity multi-branch enterprise deployment with tailored device seat quotas.",
-        "max_seats": 50,
-        "max_devices": 15,
-        "price_cents": 19900,
-        "currency": "USD",
-        "billing_interval": "month",
-        "owner_type": OwnerType.ORGANIZATION,
+        "app_code": "VEX-POS",
+        "code": "POS-ENTERPRISE",
+        "name": "Enterprise POS",
+        "description": "High-velocity multi-terminal setup with 50 operator seats and 15 device activations.",
+        "user_seats": 50,
+        "device_seats": 15,
     },
 ]
 
 
 async def seed_vexxero_defaults(session):
-    # Seed default applications
+    # 1. Seed default applications
+    created_apps = {}
     for app_data in DEFAULT_ECOSYSTEM_APPS:
         stmt = select(Application).where(Application.code == app_data["code"])
         result = await session.execute(stmt)
-        if not result.scalar_one_or_none():
+        existing = result.scalar_one_or_none()
+        if not existing:
             app = Application(
                 code=app_data["code"],
                 name=app_data["name"],
@@ -80,24 +73,26 @@ async def seed_vexxero_defaults(session):
                 is_active=True,
             )
             session.add(app)
+            await session.flush()
+            created_apps[app_data["code"]] = app.id
+        else:
+            created_apps[app_data["code"]] = existing.id
 
-    # Seed default plans
+    # 2. Seed default plans linked to applications
     for plan_data in DEFAULT_PLANS:
         stmt = select(Plan).where(Plan.code == plan_data["code"])
         result = await session.execute(stmt)
         if not result.scalar_one_or_none():
-            plan = Plan(
-                code=plan_data["code"],
-                name=plan_data["name"],
-                description=plan_data["description"],
-                max_seats=plan_data["max_seats"],
-                max_devices=plan_data["max_devices"],
-                price_cents=plan_data["price_cents"],
-                currency=plan_data["currency"],
-                billing_interval=plan_data["billing_interval"],
-                owner_type=plan_data["owner_type"],
-                is_active=True,
-            )
-            session.add(plan)
+            app_id = created_apps.get(plan_data["app_code"])
+            if app_id:
+                plan = Plan(
+                    application_id=app_id,
+                    code=plan_data["code"],
+                    name=plan_data["name"],
+                    description=plan_data["description"],
+                    user_seats=plan_data["user_seats"],
+                    device_seats=plan_data["device_seats"],
+                )
+                session.add(plan)
 
     await session.commit()
