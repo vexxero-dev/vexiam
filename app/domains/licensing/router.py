@@ -133,6 +133,22 @@ async def revoke_device(
     )
 
 
+@router.delete(
+    "/devices/{device_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a registered device terminal and free its quota",
+)
+async def delete_device(
+    device_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await CommercialAndLicensingService.delete_device(
+        db, current_user.id, device_id
+    )
+    return None
+
+
 @router.post(
     "/devices/{device_id}/heartbeat",
     response_model=DeviceHeartbeatResponse,

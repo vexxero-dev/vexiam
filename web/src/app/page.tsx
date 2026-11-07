@@ -18,6 +18,7 @@ import {
   AlertCircle,
   Copy,
   Check,
+  Trash2,
 } from "lucide-react";
 
 interface UserProfile {
@@ -249,6 +250,20 @@ export default function VexIAMApp() {
       alert("Ed25519 Offline License activated successfully!");
     } catch (err: any) {
       alert(err.response?.data?.detail || "Failed to activate license. Check device seat quota.");
+    }
+  };
+
+  const handleDeleteDevice = async (deviceId: string, deviceName: string) => {
+    if (!selectedOrg) return;
+    if (!confirm(`Are you sure you want to delete terminal "${deviceName}"? This will revoke active licenses and remove the device registration.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/devices/${deviceId}`);
+      loadOrgDevices(selectedOrg.id);
+      loadOrgSubscriptions(selectedOrg.id);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to delete device");
     }
   };
 
@@ -990,6 +1005,14 @@ export default function VexIAMApp() {
                                   <span>Issue Offline License</span>
                                 </button>
                               )}
+                              <button
+                                onClick={() => handleDeleteDevice(dev.id, dev.name)}
+                                title="Delete registered device"
+                                className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Delete</span>
+                              </button>
                             </div>
                           </div>
                         ))}

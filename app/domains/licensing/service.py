@@ -316,6 +316,37 @@ class CommercialAndLicensingService:
         return device
 
     @staticmethod
+    async def delete_device(
+        db: AsyncSession, actor_user_id: uuid.UUID, device_id: uuid.UUID
+    ) -> None:
+        stmt = select(Device).where(Device.id == device_id)
+        res = await db.execute(stmt)
+        device = res.scalar_one_or_none()
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not found.",
+            )
+
+        # Check actor permissions in org
+        stmt_actor = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == device.organization_id,
+                OrganizationMember.user_id == actor_user_id,
+            )
+        )
+        res_actor = await db.execute(stmt_actor)
+        actor = res_actor.scalar_one_or_none()
+        if not actor or actor.role not in [OrganizationRole.OWNER, OrganizationRole.ADMIN]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only organization owners and administrators can delete devices.",
+            )
+
+        await db.delete(device)
+        await db.commit()
+
+    @staticmethod
     async def process_heartbeat(
         db: AsyncSession, device_id: uuid.UUID, fingerprint: str, app_id: uuid.UUID | None = None
     ) -> dict:
