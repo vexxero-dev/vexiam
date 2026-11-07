@@ -20,6 +20,43 @@ router = APIRouter(tags=["Subscriptions & Device Licensing"])
 
 
 # Plans & Subscriptions
+@router.get(
+    "/plans",
+    response_model=list[PlanResponse],
+    summary="List all available subscription plans",
+)
+async def list_plans(
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.list_plans(db)
+
+
+@router.get(
+    "/organizations/{org_id}/subscriptions",
+    response_model=list[SubscriptionResponse],
+    summary="List subscriptions for an organization",
+)
+async def list_org_subscriptions(
+    org_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.list_organization_subscriptions(db, org_id)
+
+
+@router.get(
+    "/organizations/{org_id}/devices",
+    response_model=list[DeviceResponse],
+    summary="List registered devices for an organization",
+)
+async def list_org_devices(
+    org_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.list_organization_devices(db, org_id)
+
+
 @router.post(
     "/plans",
     response_model=PlanResponse,

@@ -53,6 +53,36 @@ interface Application {
   type: string;
 }
 
+interface Plan {
+  id: string;
+  application_id: string;
+  code: string;
+  name: string;
+  description?: string;
+  user_seats: number;
+  device_seats: number;
+}
+
+interface Subscription {
+  id: string;
+  plan_id: string;
+  owner_type: string;
+  organization_id?: string;
+  status: string;
+  expires_at?: string;
+  created_at: string;
+  plan?: Plan;
+}
+
+interface Device {
+  id: string;
+  organization_id: string;
+  name: string;
+  fingerprint: string;
+  status: string;
+  created_at: string;
+}
+
 export default function VexIAMApp() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -85,6 +115,18 @@ export default function VexIAMApp() {
   const [newAppName, setNewAppName] = useState("");
   const [newAppType, setNewAppType] = useState("WEB");
 
+  // Subscriptions & Devices
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [subscribingPlanId, setSubscribingPlanId] = useState<string | null>(null);
+
+  // New Device Form
+  const [newDeviceName, setNewDeviceName] = useState("");
+  const [newDeviceFingerprint, setNewDeviceFingerprint] = useState("");
+  const [newDevicePublicKey, setNewDevicePublicKey] = useState("");
+  const [activatedLicense, setActivatedLicense] = useState<string | null>(null);
+
   useEffect(() => {
     const savedToken = localStorage.getItem("vex_token");
     const savedUser = localStorage.getItem("vex_user");
@@ -98,8 +140,93 @@ export default function VexIAMApp() {
     if (token) {
       fetchOrganizations();
       fetchApplications();
+      fetchPlans();
     }
   }, [token]);
+
+  const fetchPlans = async () => {
+    try {
+      const res = await api.get("/plans");
+      setPlans(res.data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchOrgDetails = async (orgId: string) => {
+    loadOrgMembers(orgId);
+    loadOrgSubscriptions(orgId);
+    loadOrgDevices(orgId);
+  };
+
+  const loadOrgSubscriptions = async (orgId: string) => {
+    try {
+      const res = await api.get(`/organizations/${orgId}/subscriptions`);
+      setSubscriptions(res.data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const loadOrgDevices = async (orgId: string) => {
+    try {
+      const res = await api.get(`/organizations/${orgId}/devices`);
+      setDevices(res.data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleBuySubscription = async (planId: string) => {
+    if (!selectedOrg) return;
+    setSubscribingPlanId(planId);
+    try {
+      await api.post("/subscriptions", {
+        plan_id: planId,
+        owner_type: "ORGANIZATION",
+        organization_id: selectedOrg.id,
+      });
+      alert("Subscription activated successfully!");
+      loadOrgSubscriptions(selectedOrg.id);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to activate subscription");
+    } finally {
+      setSubscribingPlanId(null);
+    }
+  };
+
+  const handleRegisterDevice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrg) return;
+    try {
+      await api.post("/devices/register", {
+        organization_id: selectedOrg.id,
+        name: newDeviceName,
+        fingerprint: newDeviceFingerprint,
+        public_key: newDevicePublicKey,
+      });
+      alert("Physical device registered successfully!");
+      setNewDeviceName("");
+      setNewDeviceFingerprint("");
+      setNewDevicePublicKey("");
+      loadOrgDevices(selectedOrg.id);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to register device");
+    }
+  };
+
+  const handleIssueLicense = async (deviceId: string, appId: string) => {
+    try {
+      const res = await api.post("/licenses/activate", {
+        device_id: deviceId,
+        application_id: appId,
+      });
+      setActivatedLicense(res.data.signed_payload);
+      alert("Ed25519 Offline License activated successfully!");
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to activate license. Check device seat quota.");
+    }
+  };
 
   const fetchOrganizations = async () => {
     try {
@@ -107,7 +234,7 @@ export default function VexIAMApp() {
       setOrganizations(res.data);
       if (res.data.length > 0 && !selectedOrg) {
         setSelectedOrg(res.data[0]);
-        loadOrgMembers(res.data[0].id);
+        fetchOrgDetails(res.data[0].id);
       }
     } catch (e) {
       console.error(e);
@@ -553,7 +680,7 @@ export default function VexIAMApp() {
                       key={org.id}
                       onClick={() => {
                         setSelectedOrg(org);
-                        loadOrgMembers(org.id);
+                        fetchOrgDetails(org.id);
                         setGeneratedInviteToken(null);
                       }}
                       className={`w-full text-left p-3 rounded-xl border transition-all ${
@@ -665,6 +792,200 @@ export default function VexIAMApp() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  </div>
+
+                  {/* Subscriptions & Commercial Plans Management */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-indigo-400" />
+                          <span>Active Subscriptions & Quotas</span>
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Commercial application entitlements, user seat limits, and device quotas.
+                        </p>
+                      </div>
+                    </div>
+
+                    {subscriptions.length === 0 ? (
+                      <div className="p-4 bg-slate-800/30 border border-slate-800 rounded-xl text-center">
+                        <p className="text-xs text-slate-400 mb-4">No active subscriptions for this organization.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        {subscriptions.map((sub) => (
+                          <div
+                            key={sub.id}
+                            className="p-4 bg-slate-800/50 border border-slate-700/60 rounded-xl flex flex-col justify-between"
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-mono font-bold text-indigo-400">
+                                  {sub.plan?.code}
+                                </span>
+                                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
+                                  {sub.status}
+                                </span>
+                              </div>
+                              <h4 className="text-sm font-semibold text-white mb-1">{sub.plan?.name}</h4>
+                              <p className="text-xs text-slate-400 mb-3">{sub.plan?.description}</p>
+                            </div>
+                            <div className="pt-3 border-t border-slate-700/50 flex items-center justify-between text-xs text-slate-300">
+                              <span>Users: <strong>{sub.plan?.user_seats} seats</strong></span>
+                              <span>Terminals: <strong>{sub.plan?.device_seats} devices</strong></span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Available Plans to Buy / Subscribe */}
+                    <div className="border-t border-slate-800 pt-5">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+                        Subscribe to an Ecosystem Plan
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {plans.map((p) => (
+                          <div
+                            key={p.id}
+                            className="p-3.5 bg-slate-800/30 border border-slate-700/40 rounded-xl flex flex-col justify-between hover:border-slate-600 transition"
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="font-mono text-[10px] text-indigo-400">{p.code}</span>
+                              </div>
+                              <h5 className="font-semibold text-xs text-white">{p.name}</h5>
+                              <p className="text-[11px] text-slate-400 my-1">{p.description}</p>
+                              <div className="text-[10px] text-slate-300 space-y-0.5 my-2">
+                                <div>• {p.user_seats} User Seats</div>
+                                <div>• {p.device_seats} Device Terminal Quota</div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleBuySubscription(p.id)}
+                              disabled={subscribingPlanId === p.id}
+                              className="w-full mt-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-lg text-xs font-semibold py-1.5 transition"
+                            >
+                              {subscribingPlanId === p.id ? "Activating..." : "Subscribe / Purchase"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Device Licensing & Terminal Activations */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Laptop className="w-4 h-4 text-cyan-400" />
+                          <span>Hardware Terminals & Offline Licenses</span>
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Register POS cashiers, tablets, and kiosks with 30-day offline Ed25519 cryptographic licenses.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Registered Devices List */}
+                    {devices.length === 0 ? (
+                      <div className="p-4 bg-slate-800/30 border border-slate-800 rounded-xl text-center mb-6">
+                        <p className="text-xs text-slate-400">No physical devices registered for this organization yet.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 mb-6">
+                        {devices.map((dev) => (
+                          <div
+                            key={dev.id}
+                            className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                          >
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-semibold text-sm text-white">{dev.name}</h4>
+                                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.2 rounded font-semibold">
+                                  {dev.status}
+                                </span>
+                              </div>
+                              <p className="font-mono text-[11px] text-slate-400 mt-1">
+                                Fingerprint: {dev.fingerprint}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {applications.length > 0 && (
+                                <button
+                                  onClick={() => handleIssueLicense(dev.id, applications[0].id)}
+                                  className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                                >
+                                  <KeyRound className="w-3.5 h-3.5" />
+                                  <span>Issue Offline License</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Activated License Display */}
+                    {activatedLicense && (
+                      <div className="mb-6 p-4 bg-cyan-950/40 border border-cyan-800/50 rounded-xl">
+                        <p className="text-xs font-bold text-cyan-300 mb-1 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+                          <span>Generated Cryptographic Ed25519 Offline License:</span>
+                        </p>
+                        <p className="text-[11px] text-slate-300 mb-2">
+                          Install this license on the VEX POS terminal. It verifies offline cryptographically for 30 days.
+                        </p>
+                        <textarea
+                          readOnly
+                          rows={3}
+                          value={activatedLicense}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono text-[11px] text-cyan-200 select-all"
+                        />
+                      </div>
+                    )}
+
+                    {/* Register New Hardware Terminal Form */}
+                    <div className="border-t border-slate-800 pt-5">
+                      <h4 className="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
+                        <PlusCircle className="w-4 h-4 text-indigo-400" />
+                        <span>Register Hardware Terminal</span>
+                      </h4>
+                      <form onSubmit={handleRegisterDevice} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <input
+                          type="text"
+                          required
+                          value={newDeviceName}
+                          onChange={(e) => setNewDeviceName(e.target.value)}
+                          placeholder="Device Name (e.g. Counter POS #1)"
+                          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                        />
+                        <input
+                          type="text"
+                          required
+                          value={newDeviceFingerprint}
+                          onChange={(e) => setNewDeviceFingerprint(e.target.value)}
+                          placeholder="Hardware Fingerprint (e.g. HW-8934FA-X)"
+                          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                        />
+                        <input
+                          type="text"
+                          required
+                          value={newDevicePublicKey}
+                          onChange={(e) => setNewDevicePublicKey(e.target.value)}
+                          placeholder="Device Ed25519 Public Key"
+                          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
+                        />
+                        <button
+                          type="submit"
+                          className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold py-2 transition"
+                        >
+                          Register Terminal
+                        </button>
+                      </form>
                     </div>
                   </div>
                 </>

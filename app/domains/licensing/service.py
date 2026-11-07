@@ -24,6 +24,32 @@ from app.core.config import settings
 class CommercialAndLicensingService:
     # ------------------ Subscription Operations ------------------
     @staticmethod
+    async def list_plans(db: AsyncSession) -> list[Plan]:
+        stmt = select(Plan).options(selectinload(Plan.application))
+        res = await db.execute(stmt)
+        return list(res.scalars().all())
+
+    @staticmethod
+    async def list_organization_subscriptions(
+        db: AsyncSession, org_id: uuid.UUID
+    ) -> list[Subscription]:
+        stmt = (
+            select(Subscription)
+            .options(selectinload(Subscription.plan).selectinload(Plan.application))
+            .where(Subscription.organization_id == org_id)
+        )
+        res = await db.execute(stmt)
+        return list(res.scalars().all())
+
+    @staticmethod
+    async def list_organization_devices(
+        db: AsyncSession, org_id: uuid.UUID
+    ) -> list[Device]:
+        stmt = select(Device).where(Device.organization_id == org_id)
+        res = await db.execute(stmt)
+        return list(res.scalars().all())
+
+    @staticmethod
     async def create_plan(db: AsyncSession, req: PlanCreateRequest) -> Plan:
         stmt = select(Plan).where(Plan.code == req.code.upper())
         res = await db.execute(stmt)
