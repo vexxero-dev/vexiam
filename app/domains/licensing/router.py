@@ -11,6 +11,8 @@ from app.domains.licensing.schemas import (
     SubscriptionResponse,
     DeviceRegisterRequest,
     DeviceResponse,
+    DeviceHeartbeatRequest,
+    DeviceHeartbeatResponse,
     LicenseIssueRequest,
     LicenseResponse,
 )
@@ -113,4 +115,34 @@ async def activate_device_license(
 ):
     return await CommercialAndLicensingService.issue_device_license(
         db, current_user.id, req
+    )
+
+
+@router.post(
+    "/devices/{device_id}/revoke",
+    response_model=DeviceResponse,
+    summary="Revoke a device terminal and all its active licenses",
+)
+async def revoke_device(
+    device_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.revoke_device(
+        db, current_user.id, device_id
+    )
+
+
+@router.post(
+    "/devices/{device_id}/heartbeat",
+    response_model=DeviceHeartbeatResponse,
+    summary="POS terminal heartbeat check-in to verify status and refresh offline license lease",
+)
+async def device_heartbeat(
+    device_id: uuid.UUID,
+    req: DeviceHeartbeatRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.process_heartbeat(
+        db, device_id, req.fingerprint, req.application_id
     )

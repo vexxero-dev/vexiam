@@ -75,6 +75,20 @@ class LicenseIssueRequest(BaseModel):
     application_id: uuid.UUID
 
 
+class DeviceHeartbeatRequest(BaseModel):
+    fingerprint: str = Field(..., min_length=8, max_length=128)
+    application_id: Optional[uuid.UUID] = None
+
+
+class DeviceHeartbeatResponse(BaseModel):
+    device_id: uuid.UUID
+    device_status: DeviceStatus
+    license_status: LicenseStatus
+    is_valid: bool
+    message: str
+    license: Optional["LicenseResponse"] = None
+
+
 class LicenseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

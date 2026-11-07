@@ -100,7 +100,7 @@ async def test_commercial_and_offline_device_licensing(client: AsyncClient):
     )
     assert offline_verified_data["application_code"] == "VEX-POS-COMMERCIAL"
     assert offline_verified_data["fingerprint"] == "HW-CPU-SN-99887766-TERM1"
-    assert offline_verified_data["grace_period_days"] == 30
+    assert offline_verified_data["grace_period_days"] == 7
 
     # 9. Register Second POS Terminal (Terminal 02)
     dev2_res = await client.post(
@@ -127,3 +127,50 @@ async def test_commercial_and_offline_device_licensing(client: AsyncClient):
     )
     assert lic2_res.status_code == 403
     assert "Device seat quota exceeded" in lic2_res.json()["detail"]
+
+    # 11. Test POS Heartbeat Check-in (startup & periodic sync)
+    hb_res = await client.post(
+        f"/api/v1/devices/{dev1_id}/heartbeat",
+        json={
+            "fingerprint": "HW-CPU-SN-99887766-TERM1",
+            "application_id": app_id,
+        },
+    )
+    assert hb_res.status_code == 200
+    hb_data = hb_res.json()
+    assert hb_data["is_valid"] is True
+    assert hb_data["license_status"] == "ACTIVE"
+    assert hb_data["license"] is not None
+
+    # 12. Revoke Terminal 01 (Admin Action)
+    revoke_res = await client.post(
+        f"/api/v1/devices/{dev1_id}/revoke",
+        headers=owner_headers,
+    )
+    assert revoke_res.status_code == 200
+    assert revoke_res.json()["status"] == "REVOKED"
+
+    # 13. Terminal 01 Heartbeat should now report revocation
+    hb_revoked_res = await client.post(
+        f"/api/v1/devices/{dev1_id}/heartbeat",
+        json={
+            "fingerprint": "HW-CPU-SN-99887766-TERM1",
+            "application_id": app_id,
+        },
+    )
+    assert hb_revoked_res.status_code == 200
+    hb_revoked_data = hb_revoked_res.json()
+    assert hb_revoked_data["is_valid"] is False
+    assert hb_revoked_data["device_status"] == "REVOKED"
+
+    # 14. Terminal 02 can now activate because Terminal 01 revocation freed up the seat!
+    lic2_retry_res = await client.post(
+        "/api/v1/licenses/activate",
+        json={
+            "device_id": dev2_id,
+            "application_id": app_id,
+        },
+        headers=owner_headers,
+    )
+    assert lic2_retry_res.status_code == 201
+    assert lic2_retry_res.json()["status"] == "ACTIVE"

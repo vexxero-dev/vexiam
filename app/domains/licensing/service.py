@@ -265,6 +265,186 @@ class CommercialAndLicensingService:
         return device_license
 
     @staticmethod
+    async def revoke_device(
+        db: AsyncSession, actor_user_id: uuid.UUID, device_id: uuid.UUID
+    ) -> Device:
+        stmt = select(Device).where(Device.id == device_id)
+        res = await db.execute(stmt)
+        device = res.scalar_one_or_none()
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not found.",
+            )
+
+        # Check actor permissions in org
+        stmt_actor = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == device.organization_id,
+                OrganizationMember.user_id == actor_user_id,
+            )
+        )
+        res_actor = await db.execute(stmt_actor)
+        actor = res_actor.scalar_one_or_none()
+        if not actor or actor.role not in [OrganizationRole.OWNER, OrganizationRole.ADMIN]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only organization owners and administrators can revoke devices.",
+            )
+
+        # Mark device revoked
+        device.status = DeviceStatus.REVOKED
+
+        # Mark all active device licenses revoked to release seat quota
+        stmt_lics = select(DeviceLicense).where(
+            and_(
+                DeviceLicense.device_id == device.id,
+                DeviceLicense.status == LicenseStatus.ACTIVE,
+            )
+        )
+        res_lics = await db.execute(stmt_lics)
+        for lic in res_lics.scalars().all():
+            lic.status = LicenseStatus.REVOKED
+
+        await db.commit()
+        await db.refresh(device)
+        return device
+
+    @staticmethod
+    async def process_heartbeat(
+        db: AsyncSession, device_id: uuid.UUID, fingerprint: str, app_id: uuid.UUID | None = None
+    ) -> dict:
+        stmt_dev = select(Device).where(Device.id == device_id)
+        res_dev = await db.execute(stmt_dev)
+        device = res_dev.scalar_one_or_none()
+
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not registered.",
+            )
+
+        # Enforce fingerprint binding
+        if device.fingerprint != fingerprint:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Hardware fingerprint mismatch.",
+            )
+
+        # If device is revoked
+        if device.status == DeviceStatus.REVOKED:
+            return {
+                "device_id": device.id,
+                "device_status": DeviceStatus.REVOKED,
+                "license_status": LicenseStatus.REVOKED,
+                "is_valid": False,
+                "message": "Device registration has been revoked by an administrator.",
+                "license": None,
+            }
+
+        # Update last heartbeat timestamp
+        now = datetime.now(timezone.utc)
+        device.last_heartbeat_at = now
+
+        # If application specified, check and renew/extend license
+        target_license = None
+        if app_id:
+            stmt_lic = select(DeviceLicense).where(
+                and_(
+                    DeviceLicense.device_id == device.id,
+                    DeviceLicense.application_id == app_id,
+                )
+            ).order_by(DeviceLicense.issued_at.desc())
+            res_lic = await db.execute(stmt_lic)
+            target_license = res_lic.scalars().first()
+
+        if target_license:
+            if target_license.status == LicenseStatus.REVOKED:
+                await db.commit()
+                return {
+                    "device_id": device.id,
+                    "device_status": device.status,
+                    "license_status": LicenseStatus.REVOKED,
+                    "is_valid": False,
+                    "message": "Application license has been revoked.",
+                    "license": None,
+                }
+
+            # Check organization subscription
+            stmt_app = select(Application).where(Application.id == app_id)
+            res_app = await db.execute(stmt_app)
+            app = res_app.scalar_one_or_none()
+
+            stmt_sub = (
+                select(Subscription)
+                .join(Plan, Subscription.plan_id == Plan.id)
+                .where(
+                    and_(
+                        Subscription.organization_id == device.organization_id,
+                        Plan.application_id == app_id,
+                        Subscription.status == SubscriptionStatus.ACTIVE,
+                    )
+                )
+            )
+            res_sub = await db.execute(stmt_sub)
+            sub = res_sub.scalar_one_or_none()
+
+            if not sub:
+                target_license.status = LicenseStatus.EXPIRED
+                await db.commit()
+                return {
+                    "device_id": device.id,
+                    "device_status": device.status,
+                    "license_status": LicenseStatus.EXPIRED,
+                    "is_valid": False,
+                    "message": "Organization subscription is expired or inactive.",
+                    "license": None,
+                }
+
+            # Automatically renew / extend signed offline license window
+            new_expires_at = now + timedelta(days=settings.OFFLINE_GRACE_PERIOD_DAYS)
+            payload = OfflineLicensePayload(
+                license_id=str(target_license.id),
+                device_id=str(device.id),
+                organization_id=str(device.organization_id),
+                application_code=app.code if app else "VEX-POS",
+                fingerprint=device.fingerprint,
+                issued_at=int(now.timestamp()),
+                expires_at=int(new_expires_at.timestamp()),
+                grace_period_days=settings.OFFLINE_GRACE_PERIOD_DAYS,
+            )
+            payload_json = json.dumps(payload.model_dump(), sort_keys=True)
+            sig_bytes = _private_key.sign(payload_json.encode("utf-8"))
+            signature_b64 = base64.b64encode(sig_bytes).decode("utf-8")
+
+            target_license.signed_payload = payload_json
+            target_license.signature = signature_b64
+            target_license.expires_at = new_expires_at
+            target_license.status = LicenseStatus.ACTIVE
+
+            await db.commit()
+            await db.refresh(target_license)
+
+            return {
+                "device_id": device.id,
+                "device_status": device.status,
+                "license_status": target_license.status,
+                "is_valid": True,
+                "message": "License renewed and active.",
+                "license": target_license,
+            }
+
+        await db.commit()
+        return {
+            "device_id": device.id,
+            "device_status": device.status,
+            "license_status": LicenseStatus.ACTIVE,
+            "is_valid": True,
+            "message": "Heartbeat recorded.",
+            "license": None,
+        }
+
+    @staticmethod
     def verify_offline_license(signed_payload_json: str, signature_b64: str) -> dict:
         """
         Local client verification algorithm executed by POS Terminal Agent without internet.

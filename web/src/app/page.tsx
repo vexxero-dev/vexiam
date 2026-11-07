@@ -16,6 +16,8 @@ import {
   Mail,
   CheckCircle2,
   AlertCircle,
+  Copy,
+  Check,
 } from "lucide-react";
 
 interface UserProfile {
@@ -126,6 +128,17 @@ export default function VexIAMApp() {
   const [newDeviceFingerprint, setNewDeviceFingerprint] = useState("");
   const [newDevicePublicKey, setNewDevicePublicKey] = useState("");
   const [activatedLicense, setActivatedLicense] = useState<string | null>(null);
+
+  // Copied State
+  const [copiedOrgId, setCopiedOrgId] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedOrgId(id);
+    setTimeout(() => {
+      setCopiedOrgId((current) => (current === id ? null : current));
+    }, 2000);
+  };
 
   useEffect(() => {
     const savedToken = localStorage.getItem("vex_token");
@@ -687,22 +700,45 @@ export default function VexIAMApp() {
                 <h3 className="text-base font-bold text-white mb-3">Your Organizations</h3>
                 <div className="space-y-2">
                   {organizations.map((org) => (
-                    <button
+                    <div
                       key={org.id}
                       onClick={() => {
                         setSelectedOrg(org);
                         fetchOrgDetails(org.id);
                         setGeneratedInviteToken(null);
                       }}
-                      className={`w-full text-left p-3 rounded-xl border transition-all ${
+                      className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
                         selectedOrg?.id === org.id
                           ? "bg-indigo-600/10 border-indigo-500/50 text-indigo-300"
                           : "bg-slate-800/40 border-slate-800 text-slate-300 hover:bg-slate-800"
                       }`}
                     >
-                      <p className="font-semibold text-sm">{org.name}</p>
-                      <p className="text-[11px] text-slate-500">{org.id}</p>
-                    </button>
+                      <div className="min-w-0 pr-2 flex-1">
+                        <p className="font-semibold text-sm truncate">{org.name}</p>
+                        <p className="text-[11px] text-slate-500 font-mono truncate">{org.id}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyToClipboard(org.id, org.id);
+                        }}
+                        title="Copy Organization ID"
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700/60 transition-colors flex items-center gap-1 shrink-0"
+                      >
+                        {copiedOrgId === org.id ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-[10px] text-emerald-400 font-medium">Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span className="text-[10px] hidden group-hover:inline">Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -715,7 +751,27 @@ export default function VexIAMApp() {
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
                     <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-800">
                       <div>
-                        <h2 className="text-xl font-bold text-white">{selectedOrg.name}</h2>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-xl font-bold text-white">{selectedOrg.name}</h2>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(selectedOrg.id, `header-${selectedOrg.id}`)}
+                            title="Copy Organization ID"
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 text-xs transition-colors"
+                          >
+                            {copiedOrgId === `header-${selectedOrg.id}` ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-400" />
+                                <span className="text-[11px] text-emerald-400 font-medium">Copied ID</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                <span className="text-[11px] font-mono">{selectedOrg.id.slice(0, 8)}...</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                         <p className="text-xs text-slate-400">Organization User Pool & Access</p>
                       </div>
                       <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-semibold">

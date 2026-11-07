@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     JWT_PRIVATE_KEY_PEM: Optional[str] = None
     
     # Offline POS Licensing Settings
-    OFFLINE_GRACE_PERIOD_DAYS: int = 30
+    OFFLINE_GRACE_PERIOD_DAYS: int = 7
     
     # Resend Email Settings
     RESEND_API_KEY: Optional[str] = None
