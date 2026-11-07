@@ -209,8 +209,8 @@ class CommercialAndLicensingService:
                 detail="Active application not found.",
             )
 
-        # Check active subscription and device seat quota
-        stmt_sub = (
+        # Check active subscriptions and calculate total device seat quota across plans
+        stmt_subs = (
             select(Subscription)
             .join(Plan, Subscription.plan_id == Plan.id)
             .where(
@@ -221,14 +221,18 @@ class CommercialAndLicensingService:
                 )
             )
             .options(selectinload(Subscription.plan))
+            .order_by(Subscription.created_at.desc())
         )
-        res_sub = await db.execute(stmt_sub)
-        sub = res_sub.scalar_one_or_none()
-        if not sub:
+        res_subs = await db.execute(stmt_subs)
+        active_subs = res_subs.scalars().all()
+        if not active_subs:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail=f"Organization does not hold an active subscription for {app.name}.",
             )
+
+        # Aggregate total terminal quota across all active subscriptions for this application
+        total_device_seats = sum(s.plan.device_seats for s in active_subs if s.plan)
 
         # Verify device seats quota
         stmt_licensed = select(func.count(DeviceLicense.id)).where(
@@ -243,10 +247,10 @@ class CommercialAndLicensingService:
         res_licensed = await db.execute(stmt_licensed)
         current_active_licenses = res_licensed.scalar() or 0
 
-        if current_active_licenses >= sub.plan.device_seats:
+        if current_active_licenses >= total_device_seats:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Device seat quota exceeded (Limit: {sub.plan.device_seats}, Current: {current_active_licenses}). Upgrade subscription to license more terminals.",
+                detail=f"Device seat quota exceeded (Limit: {total_device_seats}, Current: {current_active_licenses}). Upgrade subscription to license more terminals.",
             )
 
         # Generate Ed25519-signed offline-verifiable license payload
@@ -454,7 +458,7 @@ class CommercialAndLicensingService:
                 )
             )
             res_sub = await db.execute(stmt_sub)
-            sub = res_sub.scalar_one_or_none()
+            sub = res_sub.scalars().first()
 
             if not sub:
                 target_license.status = LicenseStatus.EXPIRED
