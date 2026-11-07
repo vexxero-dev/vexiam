@@ -6,6 +6,15 @@ from app.domains.organizations.router import router as organization_router
 from app.domains.applications.router import router as application_router
 from app.domains.licensing.router import router as licensing_router
 from app.core.security import get_public_key_pem
+from app.core.database import engine, Base
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Automatically create missing database tables on startup
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -14,6 +23,7 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
+    lifespan=lifespan,
 )
 
 # CORS Middleware
