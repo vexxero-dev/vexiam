@@ -26,9 +26,10 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     
     # Token Settings
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     ALGORITHM: str = "EdDSA"
+    JWT_PRIVATE_KEY_PEM: Optional[str] = None
     
     # Offline POS Licensing Settings
     OFFLINE_GRACE_PERIOD_DAYS: int = 30

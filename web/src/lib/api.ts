@@ -19,3 +19,20 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// Response interceptor to handle authentication errors gracefully
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (typeof window !== "undefined" && error.response?.status === 401) {
+      const url = error.config?.url || "";
+      // Ignore auth endpoints themselves (e.g., failed login attempt)
+      if (!url.includes("/auth/login") && !url.includes("/auth/register")) {
+        localStorage.removeItem("vex_token");
+        localStorage.removeItem("vex_user");
+        window.dispatchEvent(new Event("vex_auth_expired"));
+      }
+    }
+    return Promise.reject(error);
+  }
+);

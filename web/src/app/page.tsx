@@ -134,6 +134,17 @@ export default function VexIAMApp() {
       setToken(savedToken);
       setUser(JSON.parse(savedUser));
     }
+
+    const handleAuthExpired = () => {
+      setToken(null);
+      setUser(null);
+      setAuthError("Your session has expired. Please sign in again.");
+    };
+
+    window.addEventListener("vex_auth_expired", handleAuthExpired);
+    return () => {
+      window.removeEventListener("vex_auth_expired", handleAuthExpired);
+    };
   }, []);
 
   useEffect(() => {

@@ -10,8 +10,31 @@ from app.core.config import settings
 ph = PasswordHasher()
 
 # Generate or manage Ed25519 signing keys
-_private_key = ed25519.Ed25519PrivateKey.generate()
-_public_key = _private_key.public_key()
+def _init_keys() -> tuple[ed25519.Ed25519PrivateKey, ed25519.Ed25519PublicKey]:
+    if settings.JWT_PRIVATE_KEY_PEM:
+        try:
+            pem_bytes = settings.JWT_PRIVATE_KEY_PEM.encode("utf-8")
+            # Handle escaped newlines in env variables
+            if b"\\n" in pem_bytes:
+                pem_bytes = pem_bytes.replace(b"\\n", b"\n")
+            priv = serialization.load_pem_private_key(pem_bytes, password=None)
+            if isinstance(priv, ed25519.Ed25519PrivateKey):
+                return priv, priv.public_key()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to load configured JWT_PRIVATE_KEY_PEM: {e}. Falling back.")
+    
+    # Fallback to deterministic key derived from SECRET_KEY if provided, or generated
+    if settings.SECRET_KEY and len(settings.SECRET_KEY) >= 32:
+        import hashlib
+        seed = hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
+        priv = ed25519.Ed25519PrivateKey.from_private_bytes(seed)
+        return priv, priv.public_key()
+
+    priv = ed25519.Ed25519PrivateKey.generate()
+    return priv, priv.public_key()
+
+_private_key, _public_key = _init_keys()
 
 
 def hash_password(password: str) -> str:
