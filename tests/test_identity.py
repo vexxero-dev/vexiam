@@ -45,3 +45,31 @@ async def test_register_and_login(client: AsyncClient):
     assert "access_token" in token_data
     assert token_data["token_type"] == "bearer"
     assert token_data["user"]["email"] == "cashier@vexxero.com"
+
+
+
+@pytest.mark.asyncio
+async def test_email_verification_flow(client: AsyncClient):
+    from app.core.security import create_email_verification_token
+    import uuid
+
+    # 1. Register a user
+    email = f"verify_{uuid.uuid4().hex[:6]}@vexxero.com"
+    reg_payload = {
+        "email": email,
+        "password": "Password123!",
+        "first_name": "Test",
+        "last_name": "User",
+    }
+    reg_res = await client.post("/api/v1/auth/register", json=reg_payload)
+    assert reg_res.status_code == 201
+    user_id = reg_res.json()["id"]
+    assert reg_res.json()["email_verified"] is False
+    assert reg_res.json()["status"] == "PENDING_VERIFICATION"
+
+    # 2. Verify with valid token
+    token = create_email_verification_token(user_id, email)
+    verify_res = await client.post("/api/v1/auth/verify-email", json={"token": token})
+    assert verify_res.status_code == 200
+    assert verify_res.json()["email_verified"] is True
+    assert verify_res.json()["status"] == "ACTIVE"

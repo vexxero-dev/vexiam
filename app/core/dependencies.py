@@ -34,10 +34,10 @@ async def get_current_user(
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if not user or user.status != UserStatus.ACTIVE:
+    if not user or user.status == UserStatus.SUSPENDED or user.status == UserStatus.DELETED:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or account is inactive",
+            detail="User not found or account is suspended/deleted",
         )
 
     return user

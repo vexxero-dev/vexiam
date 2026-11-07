@@ -65,6 +65,21 @@ def create_access_token(
     return jwt.encode(payload, get_private_key_pem(), algorithm=settings.ALGORITHM)
 
 
+def create_email_verification_token(user_id: str, email: str) -> str:
+    """Generates a signed Ed25519 token for email verification valid for 24 hours."""
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(hours=24)
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "type": "email_verification",
+        "iat": int(now.timestamp()),
+        "exp": int(expire.timestamp()),
+        "iss": "vex-iam",
+    }
+    return jwt.encode(payload, get_private_key_pem(), algorithm=settings.ALGORITHM)
+
+
 def decode_token(token: str) -> Dict[str, Any]:
     return jwt.decode(
         token,

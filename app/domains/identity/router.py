@@ -7,6 +7,8 @@ from app.domains.identity.schemas import (
     UserResponse,
     LoginRequest,
     TokenResponse,
+    VerifyEmailRequest,
+    ResendVerificationRequest,
 )
 from app.domains.identity.service import IdentityService
 
@@ -42,3 +44,28 @@ async def login(
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user=user,
     )
+
+
+@router.post(
+    "/verify-email",
+    response_model=UserResponse,
+    summary="Verify user email address using signed token",
+)
+async def verify_email(
+    req: VerifyEmailRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await IdentityService.verify_email(db, req.token)
+
+
+@router.post(
+    "/resend-verification",
+    status_code=status.HTTP_200_OK,
+    summary="Resend verification email to user",
+)
+async def resend_verification(
+    req: ResendVerificationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    await IdentityService.resend_verification(db, req.email)
+    return {"message": "If the email is unverified, a new link has been sent."}

@@ -444,9 +444,30 @@ export default function VexIAMApp() {
                 </div>
                 <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
                   <p className="text-xs text-slate-400 mb-1">Email Verification</p>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                    Verified
-                  </span>
+                  {user.email_verified ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      Verified
+                    </span>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        Unverified
+                      </span>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api.post("/auth/resend-verification", { email: user.email });
+                            alert("Verification link sent! Check your email inbox.");
+                          } catch (err: any) {
+                            alert(err.response?.data?.detail || "Failed to resend verification email");
+                          }
+                        }}
+                        className="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-medium ml-2"
+                      >
+                        Resend Email
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

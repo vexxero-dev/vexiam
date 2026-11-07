@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # Offline POS Licensing Settings
     OFFLINE_GRACE_PERIOD_DAYS: int = 30
     
+    # Resend Email Settings
+    RESEND_API_KEY: Optional[str] = None
+    EMAIL_FROM: str = "VEX IAM <onboarding@resend.dev>"
+    FRONTEND_URL: str = "http://localhost:3000"
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
