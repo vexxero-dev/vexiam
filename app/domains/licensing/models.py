@@ -38,6 +38,7 @@ class Device(Base):
     status: Mapped[DeviceStatus] = mapped_column(
         SQLEnum(DeviceStatus, native_enum=False), default=DeviceStatus.ACTIVE, nullable=False
     )
+    last_sequence: Mapped[int] = mapped_column(default=0, nullable=False)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
@@ -45,6 +46,21 @@ class Device(Base):
 
     licenses: Mapped[list["DeviceLicense"]] = relationship(
         "DeviceLicense", back_populates="device", cascade="all, delete-orphan"
+    )
+
+
+class DeviceChallenge(Base):
+    __tablename__ = "device_challenges"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    challenge_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    nonce: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
 

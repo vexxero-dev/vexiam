@@ -51,11 +51,25 @@ class SubscriptionResponse(BaseModel):
 
 
 # Device & Licensing Schemas
+# Device Challenge & Registration Schemas
+class DeviceChallengeResponse(BaseModel):
+    challenge_id: str
+    nonce: str
+    expires_at: datetime
+
+
+class MachineHeartbeatRequest(BaseModel):
+    canonical_request: dict
+    signature_b64: str
+
+
 class DeviceRegisterRequest(BaseModel):
     organization_id: uuid.UUID
     name: str = Field(..., min_length=2, max_length=100)
     fingerprint: str = Field(..., min_length=8, max_length=128)
     public_key: str = Field(..., min_length=10, description="Device's Ed25519 public key")
+    challenge_id: Optional[str] = None
+    signature_b64: Optional[str] = None
 
 
 class DeviceResponse(BaseModel):

@@ -9,6 +9,7 @@ from app.domains.licensing.schemas import (
     PlanResponse,
     SubscriptionCreateRequest,
     SubscriptionResponse,
+    DeviceChallengeResponse,
     DeviceRegisterRequest,
     DeviceResponse,
     DeviceHeartbeatRequest,
@@ -19,6 +20,19 @@ from app.domains.licensing.schemas import (
 from app.domains.licensing.service import CommercialAndLicensingService
 
 router = APIRouter(tags=["Subscriptions & Device Licensing"])
+
+
+# Proof of Possession Device Challenge
+@router.post(
+    "/devices/challenge",
+    response_model=DeviceChallengeResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Issue a one-time cryptographic challenge nonce for proof-of-possession device registration",
+)
+async def create_device_challenge(
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.create_device_challenge(db)
 
 
 # Plans & Subscriptions

@@ -1,13 +1,16 @@
 import json
 import base64
 import uuid
+import secrets
+import rfc8785
 from datetime import datetime, timezone, timedelta
+from cryptography.hazmat.primitives.asymmetric import ed25519
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.domains.subscriptions.models import Plan, Subscription, OwnerType, SubscriptionStatus
-from app.domains.licensing.models import Device, DeviceLicense, DeviceStatus, LicenseStatus
+from app.domains.licensing.models import Device, DeviceLicense, DeviceChallenge, DeviceStatus, LicenseStatus
 from app.domains.applications.models import Application
 from app.domains.organizations.models import OrganizationMember, OrganizationRole
 from app.domains.licensing.schemas import (
@@ -16,6 +19,7 @@ from app.domains.licensing.schemas import (
     DeviceRegisterRequest,
     LicenseIssueRequest,
     OfflineLicensePayload,
+    DeviceChallengeResponse,
 )
 from app.core.security import _private_key, _public_key
 from app.core.config import settings
@@ -102,11 +106,58 @@ class CommercialAndLicensingService:
         res = await db.execute(stmt)
         return res.scalar_one()
 
+    # ------------------ Proof of Possession Challenge ------------------
+    @staticmethod
+    async def create_device_challenge(db: AsyncSession) -> DeviceChallenge:
+        challenge = DeviceChallenge(
+            challenge_id=f"CHAL-{uuid.uuid4().hex}",
+            nonce=secrets.token_hex(32),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+        db.add(challenge)
+        await db.commit()
+        await db.refresh(challenge)
+        return challenge
+
     # ------------------ Device & Offline Licensing ------------------
     @staticmethod
     async def register_device(
         db: AsyncSession, actor_user_id: uuid.UUID, req: DeviceRegisterRequest
     ) -> Device:
+        # If challenge_id is provided, verify proof of possession
+        if req.challenge_id and req.signature_b64:
+            stmt_chal = select(DeviceChallenge).where(DeviceChallenge.challenge_id == req.challenge_id)
+            res_chal = await db.execute(stmt_chal)
+            chal = res_chal.scalar_one_or_none()
+            if not chal:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid challenge ID.")
+            if chal.consumed_at is not None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge already consumed.")
+            now_utc = datetime.now(timezone.utc)
+            chal_expires = chal.expires_at
+            if chal_expires.tzinfo is None:
+                chal_expires = chal_expires.replace(tzinfo=timezone.utc)
+            if now_utc > chal_expires:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge expired.")
+
+            # Verify terminal's Ed25519 signature over canonical challenge data
+            try:
+                raw_pub = base64.b64decode(req.public_key)
+                term_pub = ed25519.Ed25519PublicKey.from_public_bytes(raw_pub)
+                challenge_data = {
+                    "challenge_id": chal.challenge_id,
+                    "device_id": req.fingerprint,
+                    "nonce": chal.nonce,
+                    "organization_id": str(req.organization_id),
+                }
+                canonical_bytes = rfc8785.dumps(challenge_data)
+                sig_bytes = base64.b64decode(req.signature_b64)
+                term_pub.verify(sig_bytes, canonical_bytes)
+            except Exception as exc:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Proof of possession failed: {exc}")
+
+            chal.consumed_at = now_utc
+
         # Check actor has admin rights in the organization
         stmt_actor = select(OrganizationMember).where(
             and_(
@@ -269,9 +320,11 @@ class CommercialAndLicensingService:
             grace_period_days=settings.OFFLINE_GRACE_PERIOD_DAYS,
         )
 
-        payload_json = json.dumps(payload.model_dump(), sort_keys=True)
-        # Sign payload bytes with VEX IAM's Ed25519 private key
-        sig_bytes = _private_key.sign(payload_json.encode("utf-8"))
+        payload_dict = payload.model_dump()
+        payload_bytes = rfc8785.dumps(payload_dict)
+        payload_json = payload_bytes.decode("utf-8")
+        # Sign canonical bytes with VEX IAM's Ed25519 private key
+        sig_bytes = _private_key.sign(payload_bytes)
         signature_b64 = base64.b64encode(sig_bytes).decode("utf-8")
 
         device_license = DeviceLicense(
@@ -484,8 +537,10 @@ class CommercialAndLicensingService:
                 expires_at=int(new_expires_at.timestamp()),
                 grace_period_days=settings.OFFLINE_GRACE_PERIOD_DAYS,
             )
-            payload_json = json.dumps(payload.model_dump(), sort_keys=True)
-            sig_bytes = _private_key.sign(payload_json.encode("utf-8"))
+            payload_dict = payload.model_dump()
+            payload_bytes = rfc8785.dumps(payload_dict)
+            payload_json = payload_bytes.decode("utf-8")
+            sig_bytes = _private_key.sign(payload_bytes)
             signature_b64 = base64.b64encode(sig_bytes).decode("utf-8")
 
             target_license.signed_payload = payload_json
@@ -522,7 +577,12 @@ class CommercialAndLicensingService:
         """
         sig_bytes = base64.b64decode(signature_b64)
         # Verify signature using VEX IAM's Ed25519 Public Key
-        _public_key.verify(sig_bytes, signed_payload_json.encode("utf-8"))
+        try:
+            _public_key.verify(sig_bytes, signed_payload_json.encode("utf-8"))
+        except Exception:
+            data_dict = json.loads(signed_payload_json)
+            can_bytes = rfc8785.dumps(data_dict)
+            _public_key.verify(sig_bytes, can_bytes)
 
         data = json.loads(signed_payload_json)
         now_ts = int(datetime.now(timezone.utc).timestamp())
