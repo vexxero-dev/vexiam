@@ -18,6 +18,7 @@ dependencies = [
     "redis>=5.1.0",
     "python-multipart>=0.0.12",
     "resend>=2.0.0",
+    "rfc8785>=0.1.4",
 ]
 
 [project.optional-dependencies]
