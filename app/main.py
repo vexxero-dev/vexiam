@@ -12,9 +12,12 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Automatically create missing database tables on startup
+    # Automatically create missing database tables and columns on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Ensure recently added schema columns exist in existing deployments
+        from sqlalchemy import text
+        await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_sequence INTEGER NOT NULL DEFAULT 0;"))
     
     # Automatically seed official Vexxero ecosystem apps and default plans
     async with AsyncSessionLocal() as session:
