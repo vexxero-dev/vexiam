@@ -1,10 +1,14 @@
 import uuid
 from datetime import datetime, timezone
 import enum
+from typing import TYPE_CHECKING
 from sqlalchemy import String, Boolean, DateTime, ForeignKey, Enum as SQLEnum, UniqueConstraint, Table, Column
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.domains.identity.models import User
 
 
 class ApplicationType(str, enum.Enum):
@@ -144,3 +148,4 @@ class ApplicationAssignment(Base):
         "ApplicationRole", secondary=assignment_roles
     )
     application: Mapped["Application"] = relationship("Application")
+    user: Mapped["User"] = relationship("User")

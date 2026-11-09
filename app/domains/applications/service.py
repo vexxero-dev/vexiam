@@ -13,6 +13,7 @@ from app.domains.applications.models import (
     AssignmentStatus,
 )
 from app.domains.organizations.models import OrganizationMember, OrganizationRole
+from app.domains.identity.models import User
 from app.domains.identity.sync_service import IdentitySyncService
 from app.domains.identity.sync_models import SyncEventType
 from app.domains.applications.schemas import (
@@ -256,6 +257,7 @@ class ApplicationService:
             .options(
                 selectinload(ApplicationAssignment.roles).selectinload(ApplicationRole.permissions),
                 selectinload(ApplicationAssignment.application),
+                selectinload(ApplicationAssignment.user).selectinload(User.profile),
             )
             .where(
                 and_(
@@ -267,6 +269,112 @@ class ApplicationService:
         )
         res_fresh = await db.execute(stmt_fresh)
         return res_fresh.scalar_one()
+
+    @staticmethod
+    async def list_assignments(
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        app_id: uuid.UUID | None = None,
+    ) -> list[ApplicationAssignment]:
+        # Check actor is a member of the org
+        stmt_actor = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == org_id,
+                OrganizationMember.user_id == actor_user_id,
+            )
+        )
+        res_actor = await db.execute(stmt_actor)
+        if not res_actor.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You must be a member of this organization to view application assignments.",
+            )
+
+        stmt = (
+            select(ApplicationAssignment)
+            .options(
+                selectinload(ApplicationAssignment.roles).selectinload(ApplicationRole.permissions),
+                selectinload(ApplicationAssignment.application),
+                selectinload(ApplicationAssignment.user).selectinload(User.profile),
+            )
+            .where(
+                and_(
+                    ApplicationAssignment.organization_id == org_id,
+                    ApplicationAssignment.status == AssignmentStatus.ACTIVE,
+                )
+            )
+        )
+        if app_id:
+            stmt = stmt.where(ApplicationAssignment.application_id == app_id)
+
+        stmt = stmt.order_by(ApplicationAssignment.created_at.desc())
+        res = await db.execute(stmt)
+        return list(res.scalars().all())
+
+    @staticmethod
+    async def revoke_assignment(
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        assignment_id: uuid.UUID,
+    ) -> None:
+        # Check actor is OWNER or ADMIN
+        stmt_actor = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == org_id,
+                OrganizationMember.user_id == actor_user_id,
+            )
+        )
+        res_actor = await db.execute(stmt_actor)
+        actor = res_actor.scalar_one_or_none()
+        if not actor or actor.role not in [OrganizationRole.OWNER, OrganizationRole.ADMIN]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only organization owners and administrators can revoke application access.",
+            )
+
+        stmt_assign = (
+            select(ApplicationAssignment)
+            .where(
+                and_(
+                    ApplicationAssignment.id == assignment_id,
+                    ApplicationAssignment.organization_id == org_id,
+                )
+            )
+            .with_for_update()
+        )
+        res_assign = await db.execute(stmt_assign)
+        assignment = res_assign.scalar_one_or_none()
+        if not assignment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Application assignment not found.",
+            )
+
+        if assignment.status != AssignmentStatus.REVOKED:
+            assignment.status = AssignmentStatus.REVOKED
+            assignment.assignment_version += 1
+            await db.flush()
+
+            # Emit sync event
+            await IdentitySyncService.record_sync_event(
+                db=db,
+                event_type=SyncEventType.APPLICATION_ACCESS_REVOKED,
+                organization_id=org_id,
+                application_id=assignment.application_id,
+                user_id=assignment.user_id,
+                entity_id=str(assignment.id),
+                version=assignment.assignment_version,
+                payload={
+                    "assignment_id": str(assignment.id),
+                    "user_id": str(assignment.user_id),
+                    "application_id": str(assignment.application_id),
+                    "status": assignment.status.value,
+                },
+            )
+
+            await db.commit()
 
     @staticmethod
     async def evaluate_access(

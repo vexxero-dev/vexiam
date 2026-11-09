@@ -19,6 +19,8 @@ import {
   Copy,
   Check,
   Trash2,
+  UserPlus,
+  X,
 } from "lucide-react";
 
 interface UserProfile {
@@ -86,6 +88,33 @@ interface Device {
   created_at: string;
 }
 
+interface ApplicationRole {
+  id: string;
+  application_id: string;
+  code: string;
+  name: string;
+  description?: string;
+}
+
+interface ApplicationAssignment {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  application_id: string;
+  status: string;
+  created_at: string;
+  roles: ApplicationRole[];
+  application?: Application;
+  user?: {
+    id: string;
+    email: string;
+    profile?: {
+      first_name: string;
+      last_name: string;
+    };
+  };
+}
+
 export default function VexIAMApp() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -123,6 +152,14 @@ export default function VexIAMApp() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [subscribingPlanId, setSubscribingPlanId] = useState<string | null>(null);
+
+  // Application Assignments (Seats)
+  const [assignments, setAssignments] = useState<ApplicationAssignment[]>([]);
+  const [assigningApp, setAssigningApp] = useState<{ id: string; name: string } | null>(null);
+  const [assignUserId, setAssignUserId] = useState<string>("");
+  const [assignRoleId, setAssignRoleId] = useState<string>("");
+  const [availableRoles, setAvailableRoles] = useState<ApplicationRole[]>([]);
+  const [assignLoading, setAssignLoading] = useState(false);
 
   // New Device Form
   const [newDeviceName, setNewDeviceName] = useState("");
@@ -182,6 +219,69 @@ export default function VexIAMApp() {
     loadOrgMembers(orgId);
     loadOrgSubscriptions(orgId);
     loadOrgDevices(orgId);
+    loadOrgAssignments(orgId);
+  };
+
+  const loadOrgAssignments = async (orgId: string) => {
+    try {
+      const res = await api.get(`/organizations/${orgId}/assignments`);
+      setAssignments(res.data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const openAssignModal = async (appId: string, appName: string) => {
+    setAssigningApp({ id: appId, name: appName });
+    if (orgMembers.length > 0) {
+      setAssignUserId(orgMembers[0].user_id);
+    }
+    try {
+      const res = await api.get(`/applications/${appId}/roles`);
+      setAvailableRoles(res.data);
+      if (res.data.length > 0) {
+        setAssignRoleId(res.data[0].id);
+      } else {
+        setAssignRoleId("");
+      }
+    } catch (e) {
+      console.error(e);
+      setAvailableRoles([]);
+      setAssignRoleId("");
+    }
+  };
+
+  const handleAssignUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrg || !assigningApp || !assignUserId) return;
+    setAssignLoading(true);
+    try {
+      await api.post(`/organizations/${selectedOrg.id}/assignments`, {
+        user_id: assignUserId,
+        application_id: assigningApp.id,
+        role_ids: assignRoleId ? [assignRoleId] : [],
+      });
+      alert("Member assigned to application seat successfully!");
+      setAssigningApp(null);
+      loadOrgAssignments(selectedOrg.id);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to assign application access.");
+    } finally {
+      setAssignLoading(false);
+    }
+  };
+
+  const handleRevokeAssignment = async (assignmentId: string, memberLabel: string) => {
+    if (!selectedOrg) return;
+    if (!confirm(`Revoke application seat from "${memberLabel}"? This will free the subscription seat back to the quota.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/organizations/${selectedOrg.id}/assignments/${assignmentId}`);
+      loadOrgAssignments(selectedOrg.id);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to revoke assignment.");
+    }
   };
 
   const loadOrgSubscriptions = async (orgId: string) => {
@@ -897,29 +997,134 @@ export default function VexIAMApp() {
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        {subscriptions.map((sub) => (
-                          <div
-                            key={sub.id}
-                            className="p-4 bg-slate-800/50 border border-slate-700/60 rounded-xl flex flex-col justify-between"
-                          >
-                            <div>
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-mono font-bold text-indigo-400">
-                                  {sub.plan?.code}
-                                </span>
-                                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
-                                  {sub.status}
-                                </span>
+                        {subscriptions.map((sub) => {
+                          const appId = sub.plan?.application_id;
+                          const appAssignments = assignments.filter(
+                            (a) => a.application_id === appId && a.status === "ACTIVE"
+                          );
+                          const usedSeats = appAssignments.length;
+                          const totalSeats = sub.plan?.user_seats || 0;
+                          const isSeatFull = totalSeats > 0 && usedSeats >= totalSeats;
+
+                          return (
+                            <div
+                              key={sub.id}
+                              className="p-5 bg-slate-800/50 border border-slate-700/60 rounded-xl flex flex-col justify-between"
+                            >
+                              <div>
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs font-mono font-bold text-indigo-400">
+                                    {sub.plan?.code}
+                                  </span>
+                                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
+                                    {sub.status}
+                                  </span>
+                                </div>
+                                <h4 className="text-sm font-semibold text-white mb-1">{sub.plan?.name}</h4>
+                                <p className="text-xs text-slate-400 mb-3">{sub.plan?.description}</p>
+
+                                {/* Seat Allocation & Quota Bar */}
+                                <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 mb-4">
+                                  <div className="flex items-center justify-between text-xs mb-1.5">
+                                    <span className="text-slate-300 font-medium">Assigned User Seats:</span>
+                                    <span
+                                      className={`font-mono font-bold ${
+                                        isSeatFull ? "text-amber-400" : "text-indigo-400"
+                                      }`}
+                                    >
+                                      {usedSeats} / {totalSeats} seats used
+                                    </span>
+                                  </div>
+                                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full transition-all ${
+                                        isSeatFull ? "bg-amber-400" : "bg-indigo-500"
+                                      }`}
+                                      style={{
+                                        width: `${Math.min(
+                                          100,
+                                          totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0
+                                        )}%`,
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2">
+                                    <span>
+                                      Terminal Quota: <strong>{sub.plan?.device_seats} devices</strong>
+                                    </span>
+                                    {appId && (
+                                      <button
+                                        onClick={() =>
+                                          openAssignModal(appId, sub.plan?.name || "Application")
+                                        }
+                                        disabled={isSeatFull}
+                                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 disabled:text-slate-500 transition"
+                                      >
+                                        <UserPlus className="w-3.5 h-3.5" />
+                                        <span>{isSeatFull ? "Seats Full" : "Assign User Seat"}</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Assigned Users List */}
+                                <div>
+                                  <h5 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                                    Assigned Users ({appAssignments.length})
+                                  </h5>
+                                  {appAssignments.length === 0 ? (
+                                    <p className="text-xs text-slate-500 italic py-1.5">
+                                      No members assigned yet. Users in the Active User Pool cannot access this app until assigned a seat here.
+                                    </p>
+                                  ) : (
+                                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                                      {appAssignments.map((assign) => {
+                                        const userName = assign.user?.profile
+                                          ? `${assign.user.profile.first_name} ${assign.user.profile.last_name}`
+                                          : assign.user?.email || "Unknown User";
+                                        const userEmail = assign.user?.email;
+                                        return (
+                                          <div
+                                            key={assign.id}
+                                            className="flex items-center justify-between p-2 bg-slate-900/40 border border-slate-800/80 rounded-lg text-xs"
+                                          >
+                                            <div className="min-w-0 pr-2">
+                                              <div className="font-medium text-white truncate">
+                                                {userName}
+                                              </div>
+                                              <div className="text-[10px] text-slate-400 truncate">
+                                                {userEmail}
+                                              </div>
+                                              <div className="flex gap-1 mt-0.5">
+                                                {assign.roles?.map((r) => (
+                                                  <span
+                                                    key={r.id}
+                                                    className="text-[9px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.2 rounded"
+                                                  >
+                                                    {r.name || r.code}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            </div>
+                                            <button
+                                              onClick={() =>
+                                                handleRevokeAssignment(assign.id, userName)
+                                              }
+                                              title="Revoke seat access"
+                                              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                              <h4 className="text-sm font-semibold text-white mb-1">{sub.plan?.name}</h4>
-                              <p className="text-xs text-slate-400 mb-3">{sub.plan?.description}</p>
                             </div>
-                            <div className="pt-3 border-t border-slate-700/50 flex items-center justify-between text-xs text-slate-300">
-                              <span>Users: <strong>{sub.plan?.user_seats} seats</strong></span>
-                              <span>Terminals: <strong>{sub.plan?.device_seats} devices</strong></span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
 
@@ -1141,6 +1346,95 @@ export default function VexIAMApp() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+        {/* Assign User to Application Modal */}
+        {assigningApp && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <UserPlus className="w-4 h-4 text-indigo-400" />
+                    <span>Assign Seat: {assigningApp.name}</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Grant an organization member application access and assign their role.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setAssigningApp(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleAssignUser} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Select Member from Active User Pool
+                  </label>
+                  <select
+                    value={assignUserId}
+                    onChange={(e) => setAssignUserId(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500"
+                    required
+                  >
+                    {orgMembers.map((m) => {
+                      const name = m.user?.profile
+                        ? `${m.user.profile.first_name} ${m.user.profile.last_name}`
+                        : m.user?.email || m.user_id;
+                      return (
+                        <option key={m.id} value={m.user_id}>
+                          {name} ({m.user?.email || "No email"}) — [{m.role}]
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Application Role
+                  </label>
+                  {availableRoles.length > 0 ? (
+                    <select
+                      value={assignRoleId}
+                      onChange={(e) => setAssignRoleId(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500"
+                    >
+                      {availableRoles.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name} ({r.code})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic bg-slate-800/40 p-2 rounded-lg">
+                      No specific roles defined. Member will receive default access.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssigningApp(null)}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2.5 rounded-xl transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={assignLoading || !assignUserId}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white text-xs font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-1"
+                  >
+                    {assignLoading ? "Assigning..." : "Confirm Seat"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

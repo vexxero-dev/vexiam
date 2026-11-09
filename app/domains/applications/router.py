@@ -105,6 +105,39 @@ async def assign_application_access(
     )
 
 
+@router.get(
+    "/organizations/{org_id}/assignments",
+    response_model=list[AssignmentResponse],
+    summary="List all application assignments for an organization",
+)
+async def list_organization_assignments(
+    org_id: uuid.UUID,
+    app_id: uuid.UUID | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await ApplicationService.list_assignments(
+        db, org_id, current_user.id, app_id
+    )
+
+
+@router.delete(
+    "/organizations/{org_id}/assignments/{assignment_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Revoke an application assignment from a user, freeing the subscription seat",
+)
+async def revoke_application_assignment(
+    org_id: uuid.UUID,
+    assignment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await ApplicationService.revoke_assignment(
+        db, org_id, current_user.id, assignment_id
+    )
+    return {"message": "Application assignment revoked successfully."}
+
+
 @router.post(
     "/access/evaluate",
     response_model=AccessEvaluationResponse,

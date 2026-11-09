@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 from app.domains.applications.models import ApplicationType, AssignmentStatus
+from app.domains.identity.schemas import UserResponse
 
 
 class PermissionCreateRequest(BaseModel):
@@ -75,6 +76,7 @@ class AssignmentResponse(BaseModel):
     created_at: datetime
     roles: list[RoleResponse] = []
     application: Optional[ApplicationResponse] = None
+    user: Optional[UserResponse] = None
 
 
 class AccessEvaluationRequest(BaseModel):
