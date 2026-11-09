@@ -76,8 +76,8 @@ class DeviceRegisterRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     fingerprint: str = Field(..., min_length=8, max_length=128)
     public_key: str = Field(..., min_length=10, description="Device's Ed25519 public key (Base64)")
-    challenge_id: str = Field(..., min_length=1, description="One-time challenge ID from /devices/challenge")
-    signature_b64: str = Field(..., min_length=1, description="Ed25519 signature over canonical challenge payload")
+    challenge_id: Optional[str] = Field(None, description="One-time challenge ID from /devices/challenge")
+    signature_b64: Optional[str] = Field(None, description="Ed25519 signature over canonical challenge payload")
 
 
 class DeviceResponse(BaseModel):

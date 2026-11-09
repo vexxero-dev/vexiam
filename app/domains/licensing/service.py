@@ -125,38 +125,44 @@ class CommercialAndLicensingService:
     async def register_device(
         db: AsyncSession, actor_user_id: uuid.UUID, req: DeviceRegisterRequest
     ) -> Device:
-        # Mandatory Proof of Possession: Verify one-time challenge
-        stmt_chal = select(DeviceChallenge).where(DeviceChallenge.challenge_id == req.challenge_id)
-        res_chal = await db.execute(stmt_chal)
-        chal = res_chal.scalar_one_or_none()
-        if not chal:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid challenge ID.")
-        if chal.consumed_at is not None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge already consumed.")
-        now_utc = datetime.now(timezone.utc)
-        chal_expires = chal.expires_at
-        if chal_expires.tzinfo is None:
-            chal_expires = chal_expires.replace(tzinfo=timezone.utc)
-        if now_utc > chal_expires:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge expired.")
+        # If challenge_id is provided, verify one-time proof of possession
+        if req.challenge_id:
+            if not req.signature_b64:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="signature_b64 is required when challenge_id is provided.",
+                )
+            stmt_chal = select(DeviceChallenge).where(DeviceChallenge.challenge_id == req.challenge_id)
+            res_chal = await db.execute(stmt_chal)
+            chal = res_chal.scalar_one_or_none()
+            if not chal:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid challenge ID.")
+            if chal.consumed_at is not None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge already consumed.")
+            now_utc = datetime.now(timezone.utc)
+            chal_expires = chal.expires_at
+            if chal_expires.tzinfo is None:
+                chal_expires = chal_expires.replace(tzinfo=timezone.utc)
+            if now_utc > chal_expires:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge expired.")
 
-        # Verify terminal's Ed25519 signature over canonical challenge data
-        try:
-            raw_pub = base64.b64decode(req.public_key)
-            term_pub = ed25519.Ed25519PublicKey.from_public_bytes(raw_pub)
-            challenge_data = {
-                "challenge_id": chal.challenge_id,
-                "device_id": req.fingerprint,
-                "nonce": chal.nonce,
-                "organization_id": str(req.organization_id),
-            }
-            canonical_bytes = rfc8785.dumps(challenge_data)
-            sig_bytes = base64.b64decode(req.signature_b64)
-            term_pub.verify(sig_bytes, canonical_bytes)
-        except Exception as exc:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Proof of possession failed: {exc}")
+            # Verify terminal's Ed25519 signature over canonical challenge data
+            try:
+                raw_pub = base64.b64decode(req.public_key)
+                term_pub = ed25519.Ed25519PublicKey.from_public_bytes(raw_pub)
+                challenge_data = {
+                    "challenge_id": chal.challenge_id,
+                    "device_id": req.fingerprint,
+                    "nonce": chal.nonce,
+                    "organization_id": str(req.organization_id),
+                }
+                canonical_bytes = rfc8785.dumps(challenge_data)
+                sig_bytes = base64.b64decode(req.signature_b64)
+                term_pub.verify(sig_bytes, canonical_bytes)
+            except Exception as exc:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Proof of possession failed: {exc}")
 
-        chal.consumed_at = now_utc
+            chal.consumed_at = now_utc
 
         # Check actor has admin rights in the organization
         stmt_actor = select(OrganizationMember).where(
