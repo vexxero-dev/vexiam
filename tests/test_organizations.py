@@ -1,5 +1,6 @@
 import pytest
 from httpx import AsyncClient
+from app.core.security import create_email_verification_token
 
 
 @pytest.mark.asyncio
@@ -42,7 +43,25 @@ async def test_organization_lifecycle(client: AsyncClient):
     emp_id = emp_token_res.json()["user"]["id"]
     emp_headers = {"Authorization": f"Bearer {emp_token}"}
 
-    # 3. Create Business Entity (B & B Cafe)
+    # Verify Alice's email
+    emp_verify_token = create_email_verification_token(emp_id, "alice@bbcafe.com")
+    await client.post("/api/v1/auth/verify-email", json={"token": emp_verify_token})
+
+    # 3. Security Boundary: Unverified owner cannot create an organization
+    unverified_org_res = await client.post(
+        "/api/v1/organizations",
+        json={"name": "B & B Cafe", "registration_number": "REG-12345"},
+        headers=owner_headers,
+    )
+    assert unverified_org_res.status_code == 403
+    assert "email address must be verified" in unverified_org_res.json()["detail"].lower()
+
+    # Now verify Owner's email
+    owner_verify_token = create_email_verification_token(owner_id, "owner@bbcafe.com")
+    verify_res = await client.post("/api/v1/auth/verify-email", json={"token": owner_verify_token})
+    assert verify_res.status_code == 200
+
+    # 4. Create Business Entity (B & B Cafe) with verified owner
     create_org_res = await client.post(
         "/api/v1/organizations",
         json={"name": "B & B Cafe", "registration_number": "REG-12345"},
@@ -53,7 +72,7 @@ async def test_organization_lifecycle(client: AsyncClient):
     org_id = org["id"]
     assert org["name"] == "B & B Cafe"
 
-    # 4. Check Owner Membership is automatically OWNER
+    # 5. Check Owner Membership is automatically OWNER
     members_res = await client.get(
         f"/api/v1/organizations/{org_id}/members",
         headers=owner_headers,
@@ -64,7 +83,15 @@ async def test_organization_lifecycle(client: AsyncClient):
     assert members[0]["user_id"] == owner_id
     assert members[0]["role"] == "OWNER"
 
-    # 5. Invite Alice as MEMBER
+    # 6. Enforce Single-Owner Invariant: Inviting someone as OWNER must be rejected
+    invalid_owner_invite = await client.post(
+        f"/api/v1/organizations/{org_id}/invitations",
+        json={"email": "alice@bbcafe.com", "role": "OWNER"},
+        headers=owner_headers,
+    )
+    assert invalid_owner_invite.status_code in [400, 422]
+
+    # 7. Invite Alice as MEMBER
     invite_res = await client.post(
         f"/api/v1/organizations/{org_id}/invitations",
         json={"email": "alice@bbcafe.com", "role": "MEMBER"},
@@ -75,7 +102,7 @@ async def test_organization_lifecycle(client: AsyncClient):
     raw_token = invite_data["invitation_token"]
     assert raw_token is not None
 
-    # 6. Alice Accepts Invitation
+    # 8. Alice Accepts Invitation
     accept_res = await client.post(
         f"/api/v1/organizations/invitations/{raw_token}/accept",
         headers=emp_headers,
@@ -86,7 +113,14 @@ async def test_organization_lifecycle(client: AsyncClient):
     assert membership["user_id"] == emp_id
     assert membership["role"] == "MEMBER"
 
-    # 7. Verify Organization Member list now has 2 members
+    # 9. Accepting again or when already a member MUST fail cleanly with 400
+    duplicate_accept = await client.post(
+        f"/api/v1/organizations/invitations/{raw_token}/accept",
+        headers=emp_headers,
+    )
+    assert duplicate_accept.status_code in [400, 404]
+
+    # 10. Verify Organization Member list now has 2 members
     updated_members_res = await client.get(
         f"/api/v1/organizations/{org_id}/members",
         headers=owner_headers,
@@ -95,7 +129,7 @@ async def test_organization_lifecycle(client: AsyncClient):
     updated_members = updated_members_res.json()
     assert len(updated_members) == 2
 
-    # 8. Transfer Ownership from Bob to Alice
+    # 11. Transfer Ownership from Bob to Alice
     transfer_res = await client.post(
         f"/api/v1/organizations/{org_id}/transfer-ownership",
         json={"new_owner_user_id": emp_id},
@@ -103,7 +137,7 @@ async def test_organization_lifecycle(client: AsyncClient):
     )
     assert transfer_res.status_code == 200
 
-    # 9. Verify Roles updated: Alice is now OWNER, Bob is ADMIN
+    # 12. Verify Roles updated: Alice is now OWNER, Bob is ADMIN
     post_transfer_members = await client.get(
         f"/api/v1/organizations/{org_id}/members",
         headers=emp_headers,

@@ -6,7 +6,17 @@ from typing import Optional
 class Settings(BaseSettings):
     PROJECT_NAME: str = "VEX IAM"
     API_V1_STR: str = "/api/v1"
+    ENVIRONMENT: str = "development"
     SECRET_KEY: str = "development-secret-key-change-in-production-must-be-32-chars-long"
+    PLATFORM_ADMIN_KEY: str = "dev-platform-admin-key-change-in-production"
+    
+    # Allowed CORS Origins
+    CORS_ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
     
     # Database (Automatically normalizes postgres:// to postgresql+asyncpg://)
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/vex_iam"

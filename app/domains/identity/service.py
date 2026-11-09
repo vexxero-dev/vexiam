@@ -9,11 +9,13 @@ from app.core.security import (
     hash_password,
     verify_password,
     create_access_token,
+    create_refresh_token,
     create_email_verification_token,
     decode_token,
 )
 from app.core.mailer import send_verification_email
 from app.core.config import settings
+from app.core.redis import denylist_token, is_token_denylisted
 
 
 class IdentityService:
@@ -144,9 +146,91 @@ class IdentityService:
                 detail=f"Account is {user.status.value.lower()}.",
             )
 
-        # Mint Ed25519-signed Access Token
-        token = create_access_token(
-            subject=str(user.id),
-            claims={"email": user.email, "status": user.status.value, "email_verified": user.email_verified},
-        )
-        return user, token
+        # Mint Ed25519-signed Access Token and single-use Refresh Token
+        claims = {"email": user.email, "status": user.status.value, "email_verified": user.email_verified}
+        access_token = create_access_token(subject=str(user.id), claims=claims)
+        refresh_token = create_refresh_token(subject=str(user.id), claims=claims)
+        return user, access_token, refresh_token
+
+    @staticmethod
+    async def refresh_access_token(db: AsyncSession, refresh_token_str: str) -> tuple[User, str, str]:
+        """
+        Validates refresh token, checks revocation, invalidates old refresh token (rotation),
+        and returns fresh access and refresh tokens.
+        """
+        try:
+            payload = decode_token(refresh_token_str)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token is invalid or expired.",
+            )
+
+        if payload.get("type") != "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token type: expected refresh token.",
+            )
+
+        jti = payload.get("jti")
+        if jti and await is_token_denylisted(jti):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token has been revoked or already consumed.",
+            )
+
+        user_id_str = payload.get("sub")
+        if not user_id_str:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token subject.",
+            )
+
+        try:
+            user_id = uuid.UUID(user_id_str)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid user identifier.",
+            )
+
+        stmt = select(User).options(selectinload(User.profile)).where(User.id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if not user or user.status == UserStatus.SUSPENDED or user.status == UserStatus.DELETED:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or account is suspended/deleted.",
+            )
+
+        # Single-use rotation: Invalidate old refresh token
+        if jti:
+            await denylist_token(jti, expire_seconds=86400 * settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+        # Mint rotated tokens
+        claims = {"email": user.email, "status": user.status.value, "email_verified": user.email_verified}
+        new_access_token = create_access_token(subject=str(user.id), claims=claims)
+        new_refresh_token = create_refresh_token(subject=str(user.id), claims=claims)
+
+        return user, new_access_token, new_refresh_token
+
+    @staticmethod
+    async def logout(access_token_str: str, refresh_token_str: str | None = None) -> None:
+        """Denylists current access token and optional refresh token in Redis."""
+        try:
+            payload = decode_token(access_token_str)
+            jti = payload.get("jti")
+            if jti:
+                await denylist_token(jti, expire_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+        except Exception:
+            pass
+
+        if refresh_token_str:
+            try:
+                ref_payload = decode_token(refresh_token_str)
+                ref_jti = ref_payload.get("jti")
+                if ref_jti:
+                    await denylist_token(ref_jti, expire_seconds=86400 * settings.REFRESH_TOKEN_EXPIRE_DAYS)
+            except Exception:
+                pass

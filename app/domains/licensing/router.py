@@ -2,7 +2,7 @@ import uuid
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_platform_admin, require_verified_user
 from app.domains.identity.models import User
 from app.domains.licensing.schemas import (
     PlanCreateRequest,
@@ -13,6 +13,7 @@ from app.domains.licensing.schemas import (
     DeviceRegisterRequest,
     DeviceResponse,
     DeviceHeartbeatRequest,
+    MachineHeartbeatRequest,
     DeviceHeartbeatResponse,
     LicenseIssueRequest,
     LicenseResponse,
@@ -81,6 +82,7 @@ async def list_org_devices(
 )
 async def create_plan(
     req: PlanCreateRequest,
+    _admin: bool = Depends(require_platform_admin),
     db: AsyncSession = Depends(get_db),
 ):
     return await CommercialAndLicensingService.create_plan(db, req)
@@ -94,6 +96,7 @@ async def create_plan(
 )
 async def create_subscription(
     req: SubscriptionCreateRequest,
+    _admin: bool = Depends(require_platform_admin),
     db: AsyncSession = Depends(get_db),
 ):
     return await CommercialAndLicensingService.create_subscription(db, req)
@@ -108,7 +111,7 @@ async def create_subscription(
 )
 async def register_device(
     req: DeviceRegisterRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
     return await CommercialAndLicensingService.register_device(
@@ -124,7 +127,7 @@ async def register_device(
 )
 async def activate_device_license(
     req: LicenseIssueRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
     return await CommercialAndLicensingService.issue_device_license(
@@ -139,7 +142,7 @@ async def activate_device_license(
 )
 async def revoke_device(
     device_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
     return await CommercialAndLicensingService.revoke_device(
@@ -154,7 +157,7 @@ async def revoke_device(
 )
 async def delete_device(
     device_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
     await CommercialAndLicensingService.delete_device(
@@ -170,9 +173,9 @@ async def delete_device(
 )
 async def device_heartbeat(
     device_id: uuid.UUID,
-    req: DeviceHeartbeatRequest,
+    req: MachineHeartbeatRequest,
     db: AsyncSession = Depends(get_db),
 ):
     return await CommercialAndLicensingService.process_heartbeat(
-        db, device_id, req.fingerprint, req.application_id
+        db, device_id, req
     )

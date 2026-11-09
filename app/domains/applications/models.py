@@ -77,10 +77,11 @@ class ApplicationRole(Base):
     code: Mapped[str] = mapped_column(String(50), nullable=False)  # e.g., 'CASHIER'
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role_version: Mapped[int] = mapped_column(default=1, nullable=False)
 
     application: Mapped["Application"] = relationship("Application", back_populates="roles")
     permissions: Mapped[list["Permission"]] = relationship(
-        "Permission", secondary=role_permissions, backref="roles"
+        "Permission", secondary=role_permissions, backref="roles", lazy="selectin"
     )
 
 
@@ -128,6 +129,7 @@ class ApplicationAssignment(Base):
     status: Mapped[AssignmentStatus] = mapped_column(
         SQLEnum(AssignmentStatus, native_enum=False), default=AssignmentStatus.ACTIVE, nullable=False
     )
+    assignment_version: Mapped[int] = mapped_column(default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

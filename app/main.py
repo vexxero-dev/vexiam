@@ -2,22 +2,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.domains.identity.router import router as identity_router
+from app.domains.identity.sync_router import router as identity_sync_router
 from app.domains.organizations.router import router as organization_router
 from app.domains.applications.router import router as application_router
 from app.domains.licensing.router import router as licensing_router
-from app.core.security import get_public_key_pem
+from app.core.security import get_public_key_pem, get_jwk
 from app.core.database import engine, Base, AsyncSessionLocal
 from app.core.seeds import seed_vexxero_defaults
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Automatically create missing database tables and columns on startup
+    # Automatically synchronize schema models on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Ensure recently added schema columns exist in existing deployments
-        from sqlalchemy import text
-        await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_sequence INTEGER NOT NULL DEFAULT 0;"))
     
     # Automatically seed official Vexxero ecosystem apps and default plans
     async with AsyncSessionLocal() as session:
@@ -35,10 +33,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+import secrets
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -46,6 +46,7 @@ app.add_middleware(
 
 # Include Routers
 app.include_router(identity_router, prefix=settings.API_V1_STR)
+app.include_router(identity_sync_router, prefix=settings.API_V1_STR)
 app.include_router(organization_router, prefix=settings.API_V1_STR)
 app.include_router(application_router, prefix=settings.API_V1_STR)
 app.include_router(licensing_router, prefix=settings.API_V1_STR)
@@ -66,7 +67,13 @@ async def reset_system_data(
     x_secret_key: str = Header(..., alias="X-Secret-Key"),
     db: AsyncSession = Depends(get_db),
 ):
-    if x_secret_key != settings.SECRET_KEY:
+    if settings.ENVIRONMENT != "development":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="System reset endpoint is disabled outside development mode.",
+        )
+
+    if not secrets.compare_digest(x_secret_key, settings.SECRET_KEY):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid administrative secret key.",
@@ -97,16 +104,5 @@ async def health_check():
 
 @app.get("/.well-known/jwks.json", tags=["OAuth & OIDC"])
 async def get_jwks():
-    """Returns the public key for verifying Ed25519 signatures."""
-    pub_pem = get_public_key_pem().decode("utf-8")
-    return {
-        "keys": [
-            {
-                "kty": "OKP",
-                "crv": "Ed25519",
-                "use": "sig",
-                "alg": settings.ALGORITHM,
-                "x5c": [pub_pem],
-            }
-        ]
-    }
+    """Returns the RFC 8037 compliant OKP JWK set for verifying Ed25519 signatures."""
+    return {"keys": [get_jwk()]}

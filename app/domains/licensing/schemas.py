@@ -58,18 +58,26 @@ class DeviceChallengeResponse(BaseModel):
     expires_at: datetime
 
 
+class HeartbeatPayload(BaseModel):
+    device_id: str
+    fingerprint: str
+    sequence: int = Field(..., ge=1, description="Monotonically increasing request sequence number")
+    timestamp: int = Field(..., description="Unix epoch timestamp in seconds")
+    application_id: Optional[str] = None
+
+
 class MachineHeartbeatRequest(BaseModel):
-    canonical_request: dict
-    signature_b64: str
+    canonical_request: HeartbeatPayload
+    signature_b64: str = Field(..., description="Device Ed25519 signature over canonical RFC 8785 JSON of canonical_request")
 
 
 class DeviceRegisterRequest(BaseModel):
     organization_id: uuid.UUID
     name: str = Field(..., min_length=2, max_length=100)
     fingerprint: str = Field(..., min_length=8, max_length=128)
-    public_key: str = Field(..., min_length=10, description="Device's Ed25519 public key")
-    challenge_id: Optional[str] = None
-    signature_b64: Optional[str] = None
+    public_key: str = Field(..., min_length=10, description="Device's Ed25519 public key (Base64)")
+    challenge_id: str = Field(..., min_length=1, description="One-time challenge ID from /devices/challenge")
+    signature_b64: str = Field(..., min_length=1, description="Ed25519 signature over canonical challenge payload")
 
 
 class DeviceResponse(BaseModel):
@@ -103,6 +111,9 @@ class DeviceHeartbeatResponse(BaseModel):
     device_id: uuid.UUID
     device_status: DeviceStatus
     license_status: LicenseStatus
+    organization_id: Optional[uuid.UUID] = None
+    organization_name: Optional[str] = None
+    product_name: Optional[str] = None
     is_valid: bool
     message: str
     license: Optional["LicenseResponse"] = None
@@ -114,6 +125,9 @@ class LicenseResponse(BaseModel):
     id: uuid.UUID
     device_id: uuid.UUID
     application_id: uuid.UUID
+    organization_id: Optional[uuid.UUID] = None
+    organization_name: Optional[str] = None
+    product_name: Optional[str] = None
     signed_payload: str
     signature: str
     status: LicenseStatus
@@ -138,7 +152,9 @@ class OfflineLicensePayload(BaseModel):
     license_id: str
     device_id: str
     organization_id: str
+    organization_name: Optional[str] = None
     application_code: str
+    product_name: Optional[str] = None
     fingerprint: str
     issued_at: int
     expires_at: int

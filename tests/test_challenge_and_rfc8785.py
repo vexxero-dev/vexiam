@@ -29,8 +29,14 @@ async def test_challenge_response_and_rfc8785_licensing(client: AsyncClient):
         json={"email": "operator@bbcafe.com", "password": "Password123!"},
     )
     assert login_resp.status_code == 200
+    owner_id = login_resp.json()["user"]["id"]
     owner_token = login_resp.json()["access_token"]
     headers = {"Authorization": f"Bearer {owner_token}"}
+
+    # Verify operator's email before organization creation & device registration
+    from app.core.security import create_email_verification_token
+    token = create_email_verification_token(owner_id, "operator@bbcafe.com")
+    await client.post("/api/v1/auth/verify-email", json={"token": token})
 
     org_res = await client.post("/api/v1/organizations", json={"name": "Downtown Espresso"}, headers=headers)
     assert org_res.status_code == 201

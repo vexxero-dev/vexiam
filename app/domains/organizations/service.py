@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from app.domains.organizations.models import (
     Organization,
@@ -20,6 +21,8 @@ from app.domains.organizations.schemas import (
     InvitationCreateRequest,
     TransferOwnershipRequest,
 )
+from app.domains.identity.sync_service import IdentitySyncService
+from app.domains.identity.sync_models import SyncEventType
 
 
 def hash_token(raw_token: str) -> str:
@@ -103,6 +106,13 @@ class OrganizationService:
         actor_user_id: uuid.UUID,
         req: InvitationCreateRequest,
     ) -> tuple[OrganizationInvitation, str]:
+        # Enforce single-owner invariant: cannot invite as OWNER
+        if req.role == OrganizationRole.OWNER:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot invite a member as OWNER. Organizations enforce atomic single-ownership; use ownership transfer instead.",
+            )
+
         # Validate that actor is OWNER or ADMIN
         stmt = select(OrganizationMember).where(
             and_(
@@ -202,15 +212,56 @@ class OrganizationService:
                 detail="This invitation was issued to a different email address.",
             )
 
-        # Create Membership
-        membership = OrganizationMember(
-            organization_id=invitation.organization_id,
-            user_id=user_id,
-            role=invitation.role,
+        # Check if user is already an active member of this organization
+        stmt_existing = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == invitation.organization_id,
+                OrganizationMember.user_id == user_id,
+            )
         )
-        invitation.status = InvitationStatus.ACCEPTED
-        db.add(membership)
-        await db.commit()
+        res_existing = await db.execute(stmt_existing)
+        if res_existing.scalar_one_or_none():
+            invitation.status = InvitationStatus.ACCEPTED
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You are already a member of this organization.",
+            )
+
+        # Create Membership with safe transactional handling
+        try:
+            membership = OrganizationMember(
+                organization_id=invitation.organization_id,
+                user_id=user_id,
+                role=invitation.role,
+            )
+            invitation.status = InvitationStatus.ACCEPTED
+            db.add(membership)
+            await db.flush()
+
+            # Emit MEMBERSHIP_CREATED sync event
+            await IdentitySyncService.record_sync_event(
+                db=db,
+                event_type=SyncEventType.MEMBERSHIP_CREATED,
+                organization_id=invitation.organization_id,
+                user_id=user_id,
+                entity_id=str(membership.id),
+                version=membership.membership_version,
+                payload={
+                    "membership_id": str(membership.id),
+                    "user_id": str(user_id),
+                    "organization_id": str(invitation.organization_id),
+                    "role": membership.role.value,
+                    "status": membership.status.value,
+                },
+            )
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to accept invitation due to a membership conflict or constraint violation.",
+            )
 
         # Re-fetch membership with eager loaded user and user.profile
         stmt_mem = (
@@ -294,9 +345,28 @@ class OrganizationService:
                 detail="Target user is not a member of this organization.",
             )
 
-        # Atomically transition roles: Current Owner -> ADMIN, Target -> OWNER
+        # Atomically transition roles: Current Owner -> ADMIN first, then Target -> OWNER
         curr_member.role = OrganizationRole.ADMIN
+        curr_member.membership_version += 1
+        await db.flush()
         new_member.role = OrganizationRole.OWNER
+        new_member.membership_version += 1
+        await db.flush()
+
+        await IdentitySyncService.record_sync_event(
+            db=db,
+            event_type=SyncEventType.MEMBERSHIP_UPDATED,
+            organization_id=org_id,
+            user_id=new_member.user_id,
+            entity_id=str(new_member.id),
+            version=new_member.membership_version,
+            payload={
+                "membership_id": str(new_member.id),
+                "user_id": str(new_member.user_id),
+                "role": new_member.role.value,
+                "status": new_member.status.value,
+            },
+        )
         await db.commit()
 
         # Re-fetch with eager loaded user & profile

@@ -1,8 +1,10 @@
 import uuid
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
+from app.domains.subscriptions.models import Subscription, Plan, SubscriptionStatus
 from app.domains.applications.models import (
     Application,
     ApplicationRole,
@@ -11,6 +13,8 @@ from app.domains.applications.models import (
     AssignmentStatus,
 )
 from app.domains.organizations.models import OrganizationMember, OrganizationRole
+from app.domains.identity.sync_service import IdentitySyncService
+from app.domains.identity.sync_models import SyncEventType
 from app.domains.applications.schemas import (
     ApplicationCreateRequest,
     PermissionCreateRequest,
@@ -91,6 +95,16 @@ class ApplicationService:
         return role
 
     @staticmethod
+    async def list_roles(db: AsyncSession, app_id: uuid.UUID) -> list[ApplicationRole]:
+        stmt = (
+            select(ApplicationRole)
+            .options(selectinload(ApplicationRole.permissions))
+            .where(ApplicationRole.application_id == app_id)
+        )
+        res = await db.execute(stmt)
+        return list(res.scalars().all())
+
+    @staticmethod
     async def assign_application_access(
         db: AsyncSession,
         org_id: uuid.UUID,
@@ -136,6 +150,30 @@ class ApplicationService:
         res_roles = await db.execute(stmt_roles)
         roles = list(res_roles.scalars().all())
 
+        # Enforce Commercial Entitlements: Verify active organization subscription for this application
+        stmt_subs = (
+            select(Subscription)
+            .join(Plan, Subscription.plan_id == Plan.id)
+            .where(
+                and_(
+                    Subscription.organization_id == org_id,
+                    Plan.application_id == req.application_id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+            )
+            .options(selectinload(Subscription.plan))
+            .with_for_update()
+        )
+        res_subs = await db.execute(stmt_subs)
+        active_subs = list(res_subs.scalars().all())
+        if not active_subs:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Organization does not hold an active subscription for this application. Subscribe to a plan before assigning user seats.",
+            )
+
+        total_user_seats = sum(s.plan.user_seats for s in active_subs if s.plan)
+
         # Check if assignment already exists
         stmt_assign = (
             select(ApplicationAssignment)
@@ -154,18 +192,61 @@ class ApplicationService:
         res_assign = await db.execute(stmt_assign)
         assignment = res_assign.scalar_one_or_none()
 
+        # If creating a new active assignment or reactivating, enforce user seat quota
+        if not assignment or assignment.status != AssignmentStatus.ACTIVE:
+            stmt_active_seats = select(func.count(ApplicationAssignment.id)).where(
+                and_(
+                    ApplicationAssignment.organization_id == org_id,
+                    ApplicationAssignment.application_id == req.application_id,
+                    ApplicationAssignment.status == AssignmentStatus.ACTIVE,
+                    ApplicationAssignment.user_id != req.user_id,
+                )
+            )
+            res_active_seats = await db.execute(stmt_active_seats)
+            current_active_seats = res_active_seats.scalar() or 0
+
+            if current_active_seats >= total_user_seats:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"User seat quota exceeded (Limit: {total_user_seats}, Current: {current_active_seats}). Upgrade subscription plan to assign more user seats.",
+                )
+
         if assignment:
             assignment.roles = roles
             assignment.status = AssignmentStatus.ACTIVE
+            assignment.assignment_version += 1
+            event_type = SyncEventType.APPLICATION_ASSIGNMENT_UPDATED
         else:
             assignment = ApplicationAssignment(
                 organization_id=org_id,
                 user_id=req.user_id,
                 application_id=req.application_id,
                 status=AssignmentStatus.ACTIVE,
+                assignment_version=1,
                 roles=roles,
             )
             db.add(assignment)
+            event_type = SyncEventType.APPLICATION_ASSIGNED
+
+        await db.flush()
+
+        # Emit IdentitySyncEvent
+        await IdentitySyncService.record_sync_event(
+            db=db,
+            event_type=event_type,
+            organization_id=org_id,
+            application_id=req.application_id,
+            user_id=req.user_id,
+            entity_id=str(assignment.id),
+            version=assignment.assignment_version,
+            payload={
+                "assignment_id": str(assignment.id),
+                "user_id": str(req.user_id),
+                "application_id": str(req.application_id),
+                "status": assignment.status.value,
+                "roles": [r.code for r in roles],
+            },
+        )
 
         await db.commit()
 
@@ -240,6 +321,38 @@ class ApplicationService:
             return AccessEvaluationResponse(
                 authorized=False,
                 reason="User has not been granted access to this application in this organization.",
+                application_code=req.application_code,
+            )
+
+        # 3. Commercial Entitlement Check: Verify active, non-expired organization subscription
+        now_utc = datetime.now(timezone.utc)
+        stmt_sub = (
+            select(Subscription)
+            .join(Plan, Subscription.plan_id == Plan.id)
+            .where(
+                and_(
+                    Subscription.organization_id == req.organization_id,
+                    Plan.application_id == app.id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+            )
+        )
+        res_sub = await db.execute(stmt_sub)
+        active_subs = list(res_sub.scalars().all())
+        valid_subscription = None
+        for sub in active_subs:
+            if sub.expires_at is None:
+                valid_subscription = sub
+                break
+            exp = sub.expires_at if sub.expires_at.tzinfo is not None else sub.expires_at.replace(tzinfo=timezone.utc)
+            if exp > now_utc:
+                valid_subscription = sub
+                break
+
+        if not valid_subscription:
+            return AccessEvaluationResponse(
+                authorized=False,
+                reason="Organization does not hold an active subscription for this application or subscription has expired.",
                 application_code=req.application_code,
             )
 

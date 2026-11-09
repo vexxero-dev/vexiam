@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import String, DateTime, ForeignKey, Enum as SQLEnum, UniqueConstraint, Index
+from sqlalchemy import String, DateTime, ForeignKey, Enum as SQLEnum, UniqueConstraint, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -13,6 +13,12 @@ class OrganizationStatus(str, enum.Enum):
     SUSPENDED = "SUSPENDED"
     CLOSED = "CLOSED"
     DELETED = "DELETED"
+
+
+class MembershipStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    REVOKED = "REVOKED"
 
 
 class OrganizationRole(str, enum.Enum):
@@ -64,6 +70,13 @@ class OrganizationMember(Base):
     __tablename__ = "organization_members"
     __table_args__ = (
         UniqueConstraint("organization_id", "user_id", name="uq_org_member"),
+        Index(
+            "uq_org_single_owner",
+            "organization_id",
+            unique=True,
+            postgresql_where=text("role = 'OWNER'"),
+            sqlite_where=text("role = 'OWNER'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -80,6 +93,12 @@ class OrganizationMember(Base):
         default=OrganizationRole.MEMBER,
         nullable=False,
     )
+    status: Mapped[MembershipStatus] = mapped_column(
+        SQLEnum(MembershipStatus, native_enum=False),
+        default=MembershipStatus.ACTIVE,
+        nullable=False,
+    )
+    membership_version: Mapped[int] = mapped_column(default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

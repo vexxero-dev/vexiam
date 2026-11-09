@@ -15,7 +15,13 @@ async def test_jwks_endpoint(client: AsyncClient):
     assert res.status_code == 200
     data = res.json()
     assert "keys" in data
-    assert data["keys"][0]["alg"] == "EdDSA"
+    key = data["keys"][0]
+    assert key["kty"] == "OKP"
+    assert key["crv"] == "Ed25519"
+    assert key["alg"] == "EdDSA"
+    assert key["kid"] == "vex-iam-ed25519-v1"
+    assert "x" in key
+    assert len(key["x"]) > 20
 
 
 @pytest.mark.asyncio
@@ -43,8 +49,40 @@ async def test_register_and_login(client: AsyncClient):
     assert login_res.status_code == 200, login_res.text
     token_data = login_res.json()
     assert "access_token" in token_data
+    assert "refresh_token" in token_data
     assert token_data["token_type"] == "bearer"
     assert token_data["user"]["email"] == "cashier@vexxero.com"
+
+    refresh_token = token_data["refresh_token"]
+
+    # Refresh token rotation
+    refresh_res = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert refresh_res.status_code == 200
+    new_tokens = refresh_res.json()
+    assert "access_token" in new_tokens
+    assert "refresh_token" in new_tokens
+    assert new_tokens["refresh_token"] != refresh_token
+
+    # Replay of old refresh token MUST fail (Single-use rotation)
+    replayed = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert replayed.status_code == 401
+    assert "revoked or already consumed" in replayed.json()["detail"].lower()
+
+    # Logout and revocation
+    logout_res = await client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {new_tokens['access_token']}"},
+        json={"refresh_token": new_tokens["refresh_token"]},
+    )
+    assert logout_res.status_code == 200
+
+    # Access token must now be rejected as revoked
+    revoked_req = await client.get(
+        "/api/v1/organizations",
+        headers={"Authorization": f"Bearer {new_tokens['access_token']}"},
+    )
+    assert revoked_req.status_code == 401
+    assert "token has been revoked" in revoked_req.json()["detail"].lower()
 
 
 

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
 from typing import Optional
 from app.domains.organizations.models import OrganizationStatus, OrganizationRole, InvitationStatus
 from app.domains.identity.schemas import UserResponse
@@ -35,6 +35,15 @@ class OrganizationMemberResponse(BaseModel):
 class InvitationCreateRequest(BaseModel):
     email: EmailStr
     role: OrganizationRole = OrganizationRole.MEMBER
+
+    @field_validator("role")
+    @classmethod
+    def disallow_owner_role(cls, v: OrganizationRole) -> OrganizationRole:
+        if v == OrganizationRole.OWNER:
+            raise ValueError(
+                "Cannot invite a member as OWNER. Organizations enforce atomic single-ownership; use ownership transfer instead."
+            )
+        return v
 
 
 class InvitationResponse(BaseModel):

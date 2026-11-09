@@ -5,6 +5,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 import enum
+from app.domains.identity.sync_models import IdentitySyncEvent, SyncEventType
 
 
 class UserStatus(str, enum.Enum):
@@ -26,6 +27,7 @@ class User(Base):
         SQLEnum(UserStatus, native_enum=False), default=UserStatus.PENDING_VERIFICATION, nullable=False
     )
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    identity_version: Mapped[int] = mapped_column(default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

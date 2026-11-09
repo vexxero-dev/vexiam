@@ -2,7 +2,7 @@ import uuid
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_verified_user
 from app.domains.identity.models import User
 from app.domains.organizations.schemas import (
     OrganizationCreateRequest,
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/organizations", tags=["Business Entities & User Pool
 )
 async def create_organization(
     req: OrganizationCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
     return await OrganizationService.create_organization(db, current_user.id, req)
@@ -78,7 +78,7 @@ async def get_members(
 async def invite_member(
     org_id: uuid.UUID,
     req: InvitationCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
     invitation, raw_token = await OrganizationService.create_invitation(
@@ -117,7 +117,7 @@ async def accept_invitation(
 async def transfer_ownership(
     org_id: uuid.UUID,
     req: TransferOwnershipRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
     return await OrganizationService.transfer_ownership(db, org_id, current_user.id, req)
