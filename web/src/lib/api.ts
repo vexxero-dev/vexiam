@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://modest-generosity-production-f6d0.up.railway.app/api/v1";
+  process.env.NEXT_PUBLIC_API_URL || "https://api.vexxero.com/api/v1";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
