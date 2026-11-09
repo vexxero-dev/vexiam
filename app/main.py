@@ -16,6 +16,14 @@ async def lifespan(app: FastAPI):
     # Automatically synchronize schema models on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Ensure recently added schema columns exist in existing deployments
+        from sqlalchemy import text
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS identity_version INTEGER NOT NULL DEFAULT 1;"))
+        await conn.execute(text("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE';"))
+        await conn.execute(text("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS membership_version INTEGER NOT NULL DEFAULT 1;"))
+        await conn.execute(text("ALTER TABLE application_roles ADD COLUMN IF NOT EXISTS role_version INTEGER NOT NULL DEFAULT 1;"))
+        await conn.execute(text("ALTER TABLE application_assignments ADD COLUMN IF NOT EXISTS assignment_version INTEGER NOT NULL DEFAULT 1;"))
+        await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_sequence INTEGER NOT NULL DEFAULT 0;"))
     
     # Automatically seed official Vexxero ecosystem apps and default plans
     async with AsyncSessionLocal() as session:

@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy project source code (excluding web frontend from backend image)
 COPY app ./app
-COPY pyproject.toml README.md ./
+COPY alembic ./alembic
+COPY alembic.ini pyproject.toml README.md ./
 
 # Expose default port
 EXPOSE 8000
