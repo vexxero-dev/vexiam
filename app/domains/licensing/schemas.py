@@ -130,6 +130,19 @@ class DeviceHeartbeatResponse(BaseModel):
     license: Optional["LicenseResponse"] = None
 
 
+class DeviceInternalVerificationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    device_id: uuid.UUID
+    organization_id: uuid.UUID
+    fingerprint: str
+    name: str
+    public_key: str
+    status: DeviceStatus
+    is_valid: bool
+
+
+
 class LicenseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

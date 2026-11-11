@@ -1,9 +1,12 @@
 import uuid
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, or_
+from typing import Optional
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_platform_admin, require_verified_user
 from app.domains.identity.models import User
+from app.domains.licensing.models import Device, DeviceStatus
 from app.domains.licensing.schemas import (
     PlanCreateRequest,
     PlanResponse,
@@ -15,6 +18,7 @@ from app.domains.licensing.schemas import (
     DeviceHeartbeatRequest,
     MachineHeartbeatRequest,
     DeviceHeartbeatResponse,
+    DeviceInternalVerificationResponse,
     LicenseIssueRequest,
     LicenseResponse,
 )
@@ -179,3 +183,47 @@ async def device_heartbeat(
     return await CommercialAndLicensingService.process_heartbeat(
         db, device_id, req
     )
+
+
+# Internal Device Verification for VEX Ecosystem Gateways (e.g. VEXPOSCLOUD)
+@router.get(
+    "/devices/internal/verify",
+    response_model=DeviceInternalVerificationResponse,
+    summary="Internal ecosystem endpoint to verify device registration and retrieve public key",
+)
+async def internal_verify_device(
+    organization_id: uuid.UUID = Query(..., description="Organization / tenant identifier"),
+    terminal_identifier: str = Query(..., description="Hardware fingerprint or device UUID"),
+    _admin: bool = Depends(require_platform_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Direct Policy Decision Point query for downstream gateways (like Cloud Sync).
+    Allows authentication lookup by hardware fingerprint or device UUID without duplicate registration.
+    """
+    stmt = select(Device).where(
+        Device.organization_id == organization_id,
+        or_(
+            Device.fingerprint == terminal_identifier,
+            Device.id.cast(str) == terminal_identifier,
+        )
+    )
+    res = await db.execute(stmt)
+    device = res.scalar_one_or_none()
+
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Device '{terminal_identifier}' not found in organization '{organization_id}'.",
+        )
+
+    return DeviceInternalVerificationResponse(
+        device_id=device.id,
+        organization_id=device.organization_id,
+        fingerprint=device.fingerprint,
+        name=device.name,
+        public_key=device.public_key,
+        status=device.status,
+        is_valid=(device.status == DeviceStatus.ACTIVE),
+    )
+
