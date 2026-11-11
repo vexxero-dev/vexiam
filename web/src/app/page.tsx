@@ -21,6 +21,7 @@ import {
   Trash2,
   UserPlus,
   X,
+  Cpu,
 } from "lucide-react";
 
 interface UserProfile {
@@ -79,6 +80,14 @@ interface Subscription {
   plan?: Plan;
 }
 
+interface DeviceLicenseSummary {
+  id: string;
+  application_id: string;
+  status: string;
+  expires_at: string;
+  issued_at: string;
+}
+
 interface Device {
   id: string;
   organization_id: string;
@@ -86,6 +95,7 @@ interface Device {
   fingerprint: string;
   status: string;
   created_at: string;
+  licenses?: DeviceLicenseSummary[];
 }
 
 interface ApplicationRole {
@@ -348,6 +358,9 @@ export default function VexIAMApp() {
       });
       setActivatedLicense(res.data.signed_payload);
       alert("Ed25519 Offline License activated successfully!");
+      if (selectedOrg) {
+        loadOrgDevices(selectedOrg.id);
+      }
     } catch (err: any) {
       alert(err.response?.data?.detail || "Failed to activate license. Check device seat quota.");
     }
@@ -1006,6 +1019,19 @@ export default function VexIAMApp() {
                           const totalSeats = sub.plan?.user_seats || 0;
                           const isSeatFull = totalSeats > 0 && usedSeats >= totalSeats;
 
+                          // Terminal quota tracking across organization devices
+                          const appActiveTerminals = devices.filter((dev) =>
+                            dev.licenses?.some(
+                              (lic) =>
+                                lic.status === "ACTIVE" &&
+                                (!appId || lic.application_id === appId)
+                            )
+                          );
+                          const usedTerminals = appActiveTerminals.length;
+                          const totalTerminals = sub.plan?.device_seats || 0;
+                          const isTerminalQuotaReached =
+                            totalTerminals > 0 && usedTerminals >= totalTerminals;
+
                           return (
                             <div
                               key={sub.id}
@@ -1023,8 +1049,8 @@ export default function VexIAMApp() {
                                 <h4 className="text-sm font-semibold text-white mb-1">{sub.plan?.name}</h4>
                                 <p className="text-xs text-slate-400 mb-3">{sub.plan?.description}</p>
 
-                                {/* Seat Allocation & Quota Bar */}
-                                <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 mb-4">
+                                {/* User Seat Allocation & Quota Bar */}
+                                <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 mb-3">
                                   <div className="flex items-center justify-between text-xs mb-1.5">
                                     <span className="text-slate-300 font-medium">Assigned User Seats:</span>
                                     <span
@@ -1048,10 +1074,7 @@ export default function VexIAMApp() {
                                       }}
                                     />
                                   </div>
-                                  <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2">
-                                    <span>
-                                      Terminal Quota: <strong>{sub.plan?.device_seats} devices</strong>
-                                    </span>
+                                  <div className="flex items-center justify-end text-[11px] text-slate-400 mt-2">
                                     {appId && (
                                       <button
                                         onClick={() =>
@@ -1063,6 +1086,46 @@ export default function VexIAMApp() {
                                         <UserPlus className="w-3.5 h-3.5" />
                                         <span>{isSeatFull ? "Seats Full" : "Assign User Seat"}</span>
                                       </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Terminal Seat Quota Bar */}
+                                <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 mb-4">
+                                  <div className="flex items-center justify-between text-xs mb-1.5">
+                                    <span className="text-slate-300 font-medium flex items-center gap-1">
+                                      <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+                                      <span>Licensed Terminals:</span>
+                                    </span>
+                                    <span
+                                      className={`font-mono font-bold ${
+                                        isTerminalQuotaReached ? "text-amber-400" : "text-cyan-400"
+                                      }`}
+                                    >
+                                      {usedTerminals} / {totalTerminals} terminals active
+                                    </span>
+                                  </div>
+                                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full transition-all ${
+                                        isTerminalQuotaReached ? "bg-amber-400" : "bg-cyan-500"
+                                      }`}
+                                      style={{
+                                        width: `${Math.min(
+                                          100,
+                                          totalTerminals > 0 ? (usedTerminals / totalTerminals) * 100 : 0
+                                        )}%`,
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 mt-2 flex justify-between items-center">
+                                    <span>
+                                      Capacity: <strong>{totalTerminals} devices limit</strong>
+                                    </span>
+                                    {isTerminalQuotaReached && (
+                                      <span className="text-[10px] text-amber-400 font-semibold bg-amber-400/10 px-2 py-0.5 rounded">
+                                        Quota Reached
+                                      </span>
                                     )}
                                   </div>
                                 </div>
@@ -1164,125 +1227,174 @@ export default function VexIAMApp() {
                   </div>
 
                   {/* Device Licensing & Terminal Activations */}
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h3 className="text-base font-bold text-white flex items-center gap-2">
-                          <Laptop className="w-4 h-4 text-cyan-400" />
-                          <span>Hardware Terminals & Offline Licenses</span>
-                        </h3>
-                        <p className="text-xs text-slate-400">
-                          Register POS cashiers, tablets, and kiosks with 30-day offline Ed25519 cryptographic licenses.
-                        </p>
-                      </div>
-                    </div>
+                  {(() => {
+                    const totalOrgTerminalQuota = subscriptions.reduce(
+                      (acc, s) => acc + (s.plan?.device_seats || 0),
+                      0
+                    );
+                    const licensedTerminalsCount = devices.filter((d) =>
+                      d.licenses?.some((l) => l.status === "ACTIVE")
+                    ).length;
+                    const isTotalTerminalQuotaReached =
+                      totalOrgTerminalQuota > 0 &&
+                      licensedTerminalsCount >= totalOrgTerminalQuota;
 
-                    {/* Registered Devices List */}
-                    {devices.length === 0 ? (
-                      <div className="p-4 bg-slate-800/30 border border-slate-800 rounded-xl text-center mb-6">
-                        <p className="text-xs text-slate-400">No physical devices registered for this organization yet.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3 mb-6">
-                        {devices.map((dev) => (
-                          <div
-                            key={dev.id}
-                            className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                          >
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-semibold text-sm text-white">{dev.name}</h4>
-                                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.2 rounded font-semibold">
-                                  {dev.status}
-                                </span>
-                              </div>
-                              <p className="font-mono text-[11px] text-slate-400 mt-1">
-                                Fingerprint: {dev.fingerprint}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {applications.length > 0 && (
-                                <button
-                                  onClick={() => handleIssueLicense(dev.id, applications[0].id)}
-                                  className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
-                                >
-                                  <KeyRound className="w-3.5 h-3.5" />
-                                  <span>Issue Offline License</span>
-                                </button>
-                              )}
-                              <button
-                                onClick={() => handleDeleteDevice(dev.id, dev.name)}
-                                title="Delete registered device"
-                                className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span className="hidden sm:inline">Delete</span>
-                              </button>
-                            </div>
+                    return (
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                          <div>
+                            <h3 className="text-base font-bold text-white flex items-center gap-2">
+                              <Laptop className="w-4 h-4 text-cyan-400" />
+                              <span>Hardware Terminals & Offline Licenses</span>
+                            </h3>
+                            <p className="text-xs text-slate-400">
+                              Register POS cashiers, tablets, and kiosks with 30-day offline Ed25519 cryptographic licenses.
+                            </p>
                           </div>
-                        ))}
-                      </div>
-                    )}
+                          {totalOrgTerminalQuota > 0 && (
+                            <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700/80 rounded-xl px-3 py-1.5 self-start sm:self-auto">
+                              <Cpu className="w-4 h-4 text-cyan-400" />
+                              <div className="text-xs">
+                                <span className="text-slate-400">Quota: </span>
+                                <span
+                                  className={`font-mono font-bold ${
+                                    isTotalTerminalQuotaReached
+                                      ? "text-amber-400"
+                                      : "text-cyan-400"
+                                  }`}
+                                >
+                                  {licensedTerminalsCount} / {totalOrgTerminalQuota}
+                                </span>
+                                <span className="text-slate-400 text-[11px] ml-1">licensed</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
 
-                    {/* Activated License Display */}
-                    {activatedLicense && (
-                      <div className="mb-6 p-4 bg-cyan-950/40 border border-cyan-800/50 rounded-xl">
-                        <p className="text-xs font-bold text-cyan-300 mb-1 flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-                          <span>Generated Cryptographic Ed25519 Offline License:</span>
-                        </p>
-                        <p className="text-[11px] text-slate-300 mb-2">
-                          Install this license on the VEX POS terminal. It verifies offline cryptographically for 30 days.
-                        </p>
-                        <textarea
-                          readOnly
-                          rows={3}
-                          value={activatedLicense}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono text-[11px] text-cyan-200 select-all"
-                        />
-                      </div>
-                    )}
+                        {/* Registered Devices List */}
+                        {devices.length === 0 ? (
+                          <div className="p-4 bg-slate-800/30 border border-slate-800 rounded-xl text-center mb-6">
+                            <p className="text-xs text-slate-400">No physical devices registered for this organization yet.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3 mb-6">
+                            {devices.map((dev) => {
+                              const hasActiveLicense = dev.licenses?.some(
+                                (l) => l.status === "ACTIVE"
+                              );
 
-                    {/* Register New Hardware Terminal Form */}
-                    <div className="border-t border-slate-800 pt-5">
-                      <h4 className="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
-                        <PlusCircle className="w-4 h-4 text-indigo-400" />
-                        <span>Register Hardware Terminal</span>
-                      </h4>
-                      <form onSubmit={handleRegisterDevice} className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                        <input
-                          type="text"
-                          required
-                          value={newDeviceName}
-                          onChange={(e) => setNewDeviceName(e.target.value)}
-                          placeholder="Device Name (e.g. Counter POS #1)"
-                          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
-                        />
-                        <input
-                          type="text"
-                          required
-                          value={newDeviceFingerprint}
-                          onChange={(e) => setNewDeviceFingerprint(e.target.value)}
-                          placeholder="Hardware Fingerprint (e.g. HW-8934FA-X)"
-                          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
-                        />
-                        <input
-                          type="text"
-                          required
-                          value={newDevicePublicKey}
-                          onChange={(e) => setNewDevicePublicKey(e.target.value)}
-                          placeholder="Device Ed25519 Public Key"
-                          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
-                        />
-                        <button
-                          type="submit"
-                          className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold py-2 transition"
-                        >
-                          Register Terminal
-                        </button>
-                      </form>
-                    </div>
-                  </div>
+                              return (
+                                <div
+                                  key={dev.id}
+                                  className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                                >
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <h4 className="font-semibold text-sm text-white">{dev.name}</h4>
+                                      <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.2 rounded font-semibold">
+                                        {dev.status}
+                                      </span>
+                                      {hasActiveLicense ? (
+                                        <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-2 py-0.2 rounded font-semibold flex items-center gap-1">
+                                          <CheckCircle2 className="w-3 h-3 text-cyan-400" />
+                                          <span>License Active</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] bg-slate-500/10 text-slate-400 border border-slate-500/20 px-2 py-0.2 rounded font-semibold">
+                                          Unlicensed
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="font-mono text-[11px] text-slate-400 mt-1">
+                                      Fingerprint: {dev.fingerprint}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {applications.length > 0 && (
+                                      <button
+                                        onClick={() => handleIssueLicense(dev.id, applications[0].id)}
+                                        className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                                      >
+                                        <KeyRound className="w-3.5 h-3.5" />
+                                        <span>{hasActiveLicense ? "Renew Offline License" : "Issue Offline License"}</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleDeleteDevice(dev.id, dev.name)}
+                                      title="Delete registered device"
+                                      className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <span className="hidden sm:inline">Delete</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Activated License Display */}
+                        {activatedLicense && (
+                          <div className="mb-6 p-4 bg-cyan-950/40 border border-cyan-800/50 rounded-xl">
+                            <p className="text-xs font-bold text-cyan-300 mb-1 flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+                              <span>Generated Cryptographic Ed25519 Offline License:</span>
+                            </p>
+                            <p className="text-[11px] text-slate-300 mb-2">
+                              Install this license on the VEX POS terminal. It verifies offline cryptographically for 30 days.
+                            </p>
+                            <textarea
+                              readOnly
+                              rows={3}
+                              value={activatedLicense}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono text-[11px] text-cyan-200 select-all"
+                            />
+                          </div>
+                        )}
+
+                        {/* Register New Hardware Terminal Form */}
+                        <div className="border-t border-slate-800 pt-5">
+                          <h4 className="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
+                            <PlusCircle className="w-4 h-4 text-indigo-400" />
+                            <span>Register Hardware Terminal</span>
+                          </h4>
+                          <form onSubmit={handleRegisterDevice} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <input
+                              type="text"
+                              required
+                              value={newDeviceName}
+                              onChange={(e) => setNewDeviceName(e.target.value)}
+                              placeholder="Device Name (e.g. Counter POS #1)"
+                              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                            />
+                            <input
+                              type="text"
+                              required
+                              value={newDeviceFingerprint}
+                              onChange={(e) => setNewDeviceFingerprint(e.target.value)}
+                              placeholder="Hardware Fingerprint (e.g. HW-8934FA-X)"
+                              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                            />
+                            <input
+                              type="text"
+                              required
+                              value={newDevicePublicKey}
+                              onChange={(e) => setNewDevicePublicKey(e.target.value)}
+                              placeholder="Device Ed25519 Public Key"
+                              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
+                            />
+                            <button
+                              type="submit"
+                              className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold py-2 transition"
+                            >
+                              Register Terminal
+                            </button>
+                          </form>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               ) : (
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-400">

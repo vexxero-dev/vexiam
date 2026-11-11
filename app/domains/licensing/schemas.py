@@ -80,6 +80,16 @@ class DeviceRegisterRequest(BaseModel):
     signature_b64: Optional[str] = Field(None, description="Ed25519 signature over canonical challenge payload")
 
 
+class DeviceLicenseSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    application_id: uuid.UUID
+    status: LicenseStatus
+    expires_at: datetime
+    issued_at: datetime
+
+
 class DeviceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -91,6 +101,7 @@ class DeviceResponse(BaseModel):
     status: DeviceStatus
     last_heartbeat_at: Optional[datetime] = None
     created_at: datetime
+    licenses: list[DeviceLicenseSummary] = Field(default_factory=list)
 
     def model_post_init(self, __context: Any) -> None:
         if self.device_id is None:

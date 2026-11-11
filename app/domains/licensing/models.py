@@ -45,7 +45,7 @@ class Device(Base):
     )
 
     licenses: Mapped[list["DeviceLicense"]] = relationship(
-        "DeviceLicense", back_populates="device", cascade="all, delete-orphan"
+        "DeviceLicense", back_populates="device", cascade="all, delete-orphan", lazy="selectin"
     )
 
 

@@ -50,7 +50,11 @@ class CommercialAndLicensingService:
     async def list_organization_devices(
         db: AsyncSession, org_id: uuid.UUID
     ) -> list[Device]:
-        stmt = select(Device).where(Device.organization_id == org_id)
+        stmt = (
+            select(Device)
+            .options(selectinload(Device.licenses))
+            .where(Device.organization_id == org_id)
+        )
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
