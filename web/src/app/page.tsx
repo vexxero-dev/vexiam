@@ -22,6 +22,8 @@ import {
   UserPlus,
   X,
   Cpu,
+  Activity,
+  Clock,
 } from "lucide-react";
 
 interface UserProfile {
@@ -94,6 +96,7 @@ interface Device {
   name: string;
   fingerprint: string;
   status: string;
+  last_heartbeat_at?: string | null;
   created_at: string;
   licenses?: DeviceLicenseSummary[];
 }
@@ -186,6 +189,37 @@ export default function VexIAMApp() {
     setTimeout(() => {
       setCopiedOrgId((current) => (current === id ? null : current));
     }, 2000);
+  };
+
+  const formatHeartbeatTime = (timestamp?: string | null) => {
+    if (!timestamp) return "Never";
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return "Unknown";
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffSecs = Math.max(0, Math.floor(diffMs / 1000));
+
+      if (diffSecs < 60) {
+        return "Just now";
+      }
+      const diffMins = Math.floor(diffSecs / 60);
+      if (diffMins < 60) {
+        return `${diffMins}m ago`;
+      }
+      const diffHours = Math.floor(diffMins / 60);
+      if (diffHours < 24) {
+        return `${diffHours}h ago`;
+      }
+      return date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "Unknown";
+    }
   };
 
   useEffect(() => {
@@ -1305,9 +1339,33 @@ export default function VexIAMApp() {
                                         </span>
                                       )}
                                     </div>
-                                    <p className="font-mono text-[11px] text-slate-400 mt-1">
-                                      Fingerprint: {dev.fingerprint}
-                                    </p>
+                                    <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 flex-wrap">
+                                      <p className="font-mono">
+                                        Fingerprint: {dev.fingerprint}
+                                      </p>
+                                      <span className="text-slate-600">•</span>
+                                      <div className="flex items-center gap-1.5" title={`Last check-in: ${dev.last_heartbeat_at || "Never"}`}>
+                                        <Activity
+                                          className={`w-3.5 h-3.5 ${
+                                            dev.last_heartbeat_at
+                                              ? "text-emerald-400"
+                                              : "text-slate-500"
+                                          }`}
+                                        />
+                                        <span>
+                                          Heartbeat:{" "}
+                                          <strong
+                                            className={
+                                              dev.last_heartbeat_at
+                                                ? "text-slate-300 font-medium"
+                                                : "text-slate-500 font-normal"
+                                            }
+                                          >
+                                            {formatHeartbeatTime(dev.last_heartbeat_at)}
+                                          </strong>
+                                        </span>
+                                      </div>
+                                    </div>
                                   </div>
                                   <div className="flex items-center gap-2">
                                     {applications.length > 0 && (
