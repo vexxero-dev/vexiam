@@ -201,12 +201,20 @@ async def internal_verify_device(
     Direct Policy Decision Point query for downstream gateways (like Cloud Sync).
     Allows authentication lookup by hardware fingerprint or device UUID without duplicate registration.
     """
+    # Try parsing terminal_identifier as UUID if possible
+    terminal_uuid = None
+    try:
+        terminal_uuid = uuid.UUID(terminal_identifier)
+    except (ValueError, TypeError):
+        pass
+
+    conditions = [Device.fingerprint == terminal_identifier]
+    if terminal_uuid is not None:
+        conditions.append(Device.id == terminal_uuid)
+
     stmt = select(Device).where(
         Device.organization_id == organization_id,
-        or_(
-            Device.fingerprint == terminal_identifier,
-            Device.id.cast(str) == terminal_identifier,
-        )
+        or_(*conditions),
     )
     res = await db.execute(stmt)
     device = res.scalar_one_or_none()
