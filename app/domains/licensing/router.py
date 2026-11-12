@@ -1,7 +1,8 @@
 import uuid
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, and_, or_
+from sqlalchemy.orm import selectinload
 from typing import Optional
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_platform_admin, require_verified_user
@@ -14,6 +15,8 @@ from app.domains.licensing.schemas import (
     SubscriptionResponse,
     DeviceChallengeResponse,
     DeviceRegisterRequest,
+    DeviceReassignRequest,
+    DeviceReassignResponse,
     DeviceResponse,
     DeviceHeartbeatRequest,
     MachineHeartbeatRequest,
@@ -137,6 +140,74 @@ async def activate_device_license(
     return await CommercialAndLicensingService.issue_device_license(
         db, current_user.id, req
     )
+
+
+@router.post(
+    "/devices/{device_id}/reassign",
+    response_model=DeviceReassignResponse,
+    summary="Reassign device to a target location or unassign to organization scope",
+)
+async def reassign_device(
+    device_id: uuid.UUID,
+    req: DeviceReassignRequest,
+    current_user: User = Depends(require_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.reassign_device(
+        db, current_user.id, device_id, req
+    )
+
+
+@router.get(
+    "/locations/{location_id}/devices",
+    response_model=list[DeviceResponse],
+    summary="List devices assigned to a specific location (Admin only)",
+)
+async def list_location_devices(
+    location_id: uuid.UUID,
+    current_user: User = Depends(require_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Verify location exists and caller has admin privileges in owning organization
+    from app.domains.locations.models import Location
+    from app.domains.organizations.models import OrganizationMember, OrganizationRole
+
+    stmt_loc = select(Location).where(Location.id == location_id)
+    res_loc = await db.execute(stmt_loc)
+    loc = res_loc.scalar_one_or_none()
+    if not loc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Location not found.",
+        )
+
+    stmt_actor = select(OrganizationMember).where(
+        and_(
+            OrganizationMember.organization_id == loc.organization_id,
+            OrganizationMember.user_id == current_user.id,
+        )
+    )
+    res_actor = await db.execute(stmt_actor)
+    actor = res_actor.scalar_one_or_none()
+    if not actor or actor.role not in [OrganizationRole.OWNER, OrganizationRole.ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organization owners and administrators can view location device inventory.",
+        )
+
+    stmt_devs = (
+        select(Device)
+        .options(selectinload(Device.licenses))
+        .where(
+            and_(
+                Device.organization_id == loc.organization_id,
+                Device.location_id == location_id,
+            )
+        )
+        .order_by(Device.created_at.asc())
+    )
+    res_devs = await db.execute(stmt_devs)
+    return list(res_devs.scalars().all())
 
 
 @router.post(

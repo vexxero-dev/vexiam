@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import Base
 import app.domains.identity.models
 import app.domains.organizations.models
+import app.domains.locations.models
 import app.domains.applications.models
 import app.domains.licensing.models
 import app.domains.subscriptions.models
@@ -18,8 +19,9 @@ import app.domains.subscriptions.models
 # access to the values within the .ini file in use.
 config = context.config
 
-# Dynamically set sqlalchemy.url from Pydantic settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Dynamically set sqlalchemy.url from Pydantic settings if not already provided
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

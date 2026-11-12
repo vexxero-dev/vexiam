@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.domains.identity.router import router as identity_router
 from app.domains.identity.sync_router import router as identity_sync_router
 from app.domains.organizations.router import router as organization_router
+from app.domains.locations.router import router as location_router
 from app.domains.applications.router import router as application_router
 from app.domains.licensing.router import router as licensing_router
 from app.core.security import get_public_key_pem, get_jwk
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE application_roles ADD COLUMN IF NOT EXISTS role_version INTEGER NOT NULL DEFAULT 1;"))
         await conn.execute(text("ALTER TABLE application_assignments ADD COLUMN IF NOT EXISTS assignment_version INTEGER NOT NULL DEFAULT 1;"))
         await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_sequence INTEGER NOT NULL DEFAULT 0;"))
+        await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS location_id UUID NULL;"))
     
     # Automatically seed official Vexxero ecosystem apps and default plans
     async with AsyncSessionLocal() as session:
@@ -57,12 +59,14 @@ app.add_middleware(
 app.include_router(identity_router, prefix=settings.API_V1_STR)
 app.include_router(identity_sync_router, prefix=settings.API_V1_STR)
 app.include_router(organization_router, prefix=settings.API_V1_STR)
+app.include_router(location_router, prefix=settings.API_V1_STR)
 app.include_router(application_router, prefix=settings.API_V1_STR)
 app.include_router(licensing_router, prefix=settings.API_V1_STR)
 
 
 from app.domains.identity.models import User, UserProfile, UserCredential
 from app.domains.organizations.models import Organization, OrganizationMember, OrganizationInvitation
+from app.domains.locations.models import Location, LocationApplication
 from app.domains.licensing.models import Device, DeviceLicense
 from app.domains.subscriptions.models import Subscription
 from sqlalchemy import delete

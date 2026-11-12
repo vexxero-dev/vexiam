@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import String, Text, DateTime, ForeignKey, Enum as SQLEnum, UniqueConstraint
+from sqlalchemy import String, Text, DateTime, ForeignKey, ForeignKeyConstraint, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -24,6 +24,12 @@ class Device(Base):
     __tablename__ = "devices"
     __table_args__ = (
         UniqueConstraint("organization_id", "fingerprint", name="uq_org_device_fingerprint"),
+        ForeignKeyConstraint(
+            ["location_id", "organization_id"],
+            ["locations.id", "locations.organization_id"],
+            name="fk_device_location_org",
+            ondelete="RESTRICT",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -31,6 +37,9 @@ class Device(Base):
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g., "Terminal 01 - Cashier Counter"
     fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)  # Hardware machine-id/hash
@@ -46,6 +55,9 @@ class Device(Base):
 
     licenses: Mapped[list["DeviceLicense"]] = relationship(
         "DeviceLicense", back_populates="device", cascade="all, delete-orphan", lazy="selectin"
+    )
+    location: Mapped["app.domains.locations.models.Location | None"] = relationship(
+        "Location", foreign_keys=[location_id], lazy="selectin"
     )
 
 

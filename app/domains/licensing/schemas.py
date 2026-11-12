@@ -73,11 +73,29 @@ class MachineHeartbeatRequest(BaseModel):
 
 class DeviceRegisterRequest(BaseModel):
     organization_id: uuid.UUID
+    location_id: Optional[uuid.UUID] = Field(None, description="Optional location scope")
     name: str = Field(..., min_length=2, max_length=100)
     fingerprint: str = Field(..., min_length=8, max_length=128)
     public_key: str = Field(..., min_length=10, description="Device's Ed25519 public key (Base64)")
     challenge_id: Optional[str] = Field(None, description="One-time challenge ID from /devices/challenge")
     signature_b64: Optional[str] = Field(None, description="Ed25519 signature over canonical challenge payload")
+
+
+class DeviceReassignRequest(BaseModel):
+    target_location_id: Optional[uuid.UUID] = Field(
+        ...,
+        description="Target location UUID, or explicit JSON null to unassign device to organization scope. Field must not be omitted."
+    )
+
+
+class DeviceReassignResponse(BaseModel):
+    device_id: uuid.UUID
+    organization_id: uuid.UUID
+    old_location_id: Optional[uuid.UUID]
+    new_location_id: Optional[uuid.UUID]
+    revoked_licenses_count: int
+    reassigned_at: datetime
+    message: str
 
 
 class DeviceLicenseSummary(BaseModel):
@@ -96,6 +114,7 @@ class DeviceResponse(BaseModel):
     id: uuid.UUID
     device_id: Optional[uuid.UUID] = None  # Alias for backward-compatible client SDKs
     organization_id: uuid.UUID
+    location_id: Optional[uuid.UUID] = None
     name: str
     fingerprint: str
     status: DeviceStatus

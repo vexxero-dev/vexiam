@@ -13,10 +13,15 @@ from app.domains.subscriptions.models import Plan, Subscription, OwnerType, Subs
 from app.domains.licensing.models import Device, DeviceLicense, DeviceChallenge, DeviceStatus, LicenseStatus
 from app.domains.applications.models import Application
 from app.domains.organizations.models import Organization, OrganizationMember, OrganizationRole
+from app.domains.locations.models import Location, LocationStatus, LocationApplication, LocationApplicationStatus
+from app.domains.identity.sync_service import IdentitySyncService
+from app.domains.identity.sync_models import SyncEventType
 from app.domains.licensing.schemas import (
     PlanCreateRequest,
     SubscriptionCreateRequest,
     DeviceRegisterRequest,
+    DeviceReassignRequest,
+    DeviceReassignResponse,
     LicenseIssueRequest,
     OfflineLicensePayload,
     DeviceChallengeResponse,
@@ -183,6 +188,31 @@ class CommercialAndLicensingService:
                 detail="Only organization owners and administrators can register devices.",
             )
 
+        # If location_id is provided, validate target location with row-level locking
+        if req.location_id:
+            stmt_loc = (
+                select(Location)
+                .where(
+                    and_(
+                        Location.id == req.location_id,
+                        Location.organization_id == req.organization_id,
+                    )
+                )
+                .with_for_update()
+            )
+            res_loc = await db.execute(stmt_loc)
+            target_loc = res_loc.scalar_one_or_none()
+            if not target_loc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Target location not found in this organization.",
+                )
+            if target_loc.status != LocationStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot assign device to an inactive or archived location.",
+                )
+
         # Check fingerprint uniqueness within org
         stmt_dev = select(Device).where(
             and_(
@@ -199,12 +229,15 @@ class CommercialAndLicensingService:
             existing_device.status = DeviceStatus.ACTIVE
             existing_device.last_sequence = 0
             existing_device.last_heartbeat_at = datetime.now(timezone.utc)
+            if req.location_id is not None:
+                existing_device.location_id = req.location_id
             await db.commit()
             await db.refresh(existing_device)
             return existing_device
 
         device = Device(
             organization_id=req.organization_id,
+            location_id=req.location_id,
             name=req.name,
             fingerprint=req.fingerprint,
             public_key=req.public_key,
@@ -466,10 +499,170 @@ class CommercialAndLicensingService:
         await db.commit()
 
     @staticmethod
+    async def reassign_device(
+        db: AsyncSession, actor_user_id: uuid.UUID, device_id: uuid.UUID, req: DeviceReassignRequest
+    ) -> DeviceReassignResponse:
+        # 1. Acquire row-level lock on the device record to serialize with concurrent heartbeats
+        stmt_dev = (
+            select(Device)
+            .options(selectinload(Device.licenses))
+            .where(Device.id == device_id)
+            .with_for_update()
+        )
+        res_dev = await db.execute(stmt_dev)
+        device = res_dev.scalar_one_or_none()
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not found.",
+            )
+
+        # 2. Check actor has admin permissions in the device's organization
+        stmt_actor = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == device.organization_id,
+                OrganizationMember.user_id == actor_user_id,
+            )
+        )
+        res_actor = await db.execute(stmt_actor)
+        actor = res_actor.scalar_one_or_none()
+        if not actor or actor.role not in [OrganizationRole.OWNER, OrganizationRole.ADMIN]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only organization owners and administrators can reassign devices.",
+            )
+
+        # 3. Idempotency check: if device is already at target location, return immediately as a no-op
+        if device.location_id == req.target_location_id:
+            return DeviceReassignResponse(
+                device_id=device.id,
+                organization_id=device.organization_id,
+                old_location_id=device.location_id,
+                new_location_id=device.location_id,
+                revoked_licenses_count=0,
+                reassigned_at=datetime.now(timezone.utc),
+                message="Device is already assigned to target location. No changes made.",
+            )
+
+        # 4. Deterministic location locking: lock source and target locations in ascending UUID order
+        loc_ids_to_lock = []
+        if device.location_id:
+            loc_ids_to_lock.append(device.location_id)
+        if req.target_location_id and req.target_location_id != device.location_id:
+            loc_ids_to_lock.append(req.target_location_id)
+
+        loc_ids_to_lock.sort()
+
+        locked_locations = {}
+        if loc_ids_to_lock:
+            stmt_locks = (
+                select(Location)
+                .where(
+                    and_(
+                        Location.id.in_(loc_ids_to_lock),
+                        Location.organization_id == device.organization_id,
+                    )
+                )
+                .order_by(Location.id.asc())
+                .with_for_update()
+            )
+            res_locks = await db.execute(stmt_locks)
+            for loc in res_locks.scalars().all():
+                locked_locations[loc.id] = loc
+
+        # Post-lock validation: Target location must exist, belong to org, and be ACTIVE
+        if req.target_location_id:
+            target_loc = locked_locations.get(req.target_location_id)
+            if not target_loc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Target location not found in this organization.",
+                )
+            if target_loc.status != LocationStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot assign device to an inactive or archived location.",
+                )
+
+        # 5. Authoritative Active-Only Application Resolution
+        # Find applications currently operated by this device (active, non-expired licenses)
+        now_utc = datetime.now(timezone.utc)
+        active_app_ids = set()
+        for lic in device.licenses:
+            if lic.status == LicenseStatus.ACTIVE:
+                exp = lic.expires_at if lic.expires_at.tzinfo is not None else lic.expires_at.replace(tzinfo=timezone.utc)
+                if exp > now_utc:
+                    active_app_ids.add(lic.application_id)
+
+        # If moving to a location, verify target location has ACTIVE location_applications for each active app
+        if req.target_location_id and active_app_ids:
+            stmt_enabled = select(LocationApplication.application_id).where(
+                and_(
+                    LocationApplication.location_id == req.target_location_id,
+                    LocationApplication.application_id.in_(active_app_ids),
+                    LocationApplication.status == LocationApplicationStatus.ACTIVE,
+                )
+            )
+            res_enabled = await db.execute(stmt_enabled)
+            enabled_apps = set(res_enabled.scalars().all())
+
+            missing_apps = active_app_ids - enabled_apps
+            if missing_apps:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Target location lacks active enablement for application(s) currently operated by this device.",
+                )
+
+        # 6. Atomic Mutation: Update location_id and revoke active licenses
+        old_location_id = device.location_id
+        device.location_id = req.target_location_id
+
+        revoked_count = 0
+        for lic in device.licenses:
+            if lic.status == LicenseStatus.ACTIVE:
+                lic.status = LicenseStatus.REVOKED
+                revoked_count += 1
+
+        now = datetime.now(timezone.utc)
+        await db.flush()
+
+        # 7. Transactional Outbox: Record sync event in the same transaction
+        await IdentitySyncService.record_sync_event(
+            db=db,
+            event_type=SyncEventType.DEVICE_LOCATION_REASSIGNED,
+            organization_id=device.organization_id,
+            application_id=None,
+            user_id=actor_user_id,
+            entity_id=str(device.id),
+            version=1,
+            payload={
+                "device_id": str(device.id),
+                "old_location_id": str(old_location_id) if old_location_id else None,
+                "new_location_id": str(req.target_location_id) if req.target_location_id else None,
+                "fingerprint": device.fingerprint,
+                "revoked_licenses_count": revoked_count,
+            },
+        )
+
+        await db.commit()
+        await db.refresh(device)
+
+        return DeviceReassignResponse(
+            device_id=device.id,
+            organization_id=device.organization_id,
+            old_location_id=old_location_id,
+            new_location_id=req.target_location_id,
+            revoked_licenses_count=revoked_count,
+            reassigned_at=now,
+            message="Device successfully reassigned. Active licenses revoked; client must refresh license.",
+        )
+
+    @staticmethod
     async def process_heartbeat(
         db: AsyncSession, device_id: uuid.UUID, req: MachineHeartbeatRequest
     ) -> dict:
-        stmt_dev = select(Device).where(Device.id == device_id)
+        # Acquire row-level lock on device to serialize with concurrent reassignment
+        stmt_dev = select(Device).where(Device.id == device_id).with_for_update()
         res_dev = await db.execute(stmt_dev)
         device = res_dev.scalar_one_or_none()
 
@@ -565,6 +758,47 @@ class CommercialAndLicensingService:
             stmt_default = select(Application).where(Application.code == "VEX-POS")
             res_default = await db.execute(stmt_default)
             app = res_default.scalar_one_or_none()
+
+        # Re-validate location status and application enablement if device is location-bound
+        if device.location_id:
+            stmt_loc = select(Location).where(
+                and_(
+                    Location.id == device.location_id,
+                    Location.organization_id == device.organization_id,
+                )
+            ).with_for_update()
+            res_loc = await db.execute(stmt_loc)
+            loc = res_loc.scalar_one_or_none()
+            if not loc or loc.status != LocationStatus.ACTIVE:
+                await db.commit()
+                return {
+                    "device_id": device.id,
+                    "device_status": device.status,
+                    "license_status": LicenseStatus.REVOKED,
+                    "is_valid": False,
+                    "message": "Assigned location is inactive or archived.",
+                    "license": None,
+                }
+
+            if app:
+                stmt_loc_app = select(LocationApplication).where(
+                    and_(
+                        LocationApplication.location_id == device.location_id,
+                        LocationApplication.application_id == app.id,
+                        LocationApplication.status == LocationApplicationStatus.ACTIVE,
+                    )
+                )
+                res_loc_app = await db.execute(stmt_loc_app)
+                if not res_loc_app.scalar_one_or_none():
+                    await db.commit()
+                    return {
+                        "device_id": device.id,
+                        "device_status": device.status,
+                        "license_status": LicenseStatus.REVOKED,
+                        "is_valid": False,
+                        "message": f"Application '{app.code}' is not active at assigned location.",
+                        "license": None,
+                    }
 
         # Check and renew/extend license
         target_license = None
