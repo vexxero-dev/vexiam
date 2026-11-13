@@ -60,9 +60,12 @@ class OrganizationService:
     async def get_user_organizations(
         db: AsyncSession,
         user_id: uuid.UUID,
-    ) -> list[Organization]:
+        required_permission: str | None = None,
+    ) -> list[dict]:
+        from app.domains.applications.models import ApplicationAssignment, ApplicationRole, Permission, AssignmentStatus
+
         stmt = (
-            select(Organization)
+            select(Organization, OrganizationMember.role)
             .join(OrganizationMember, OrganizationMember.organization_id == Organization.id)
             .where(
                 and_(
@@ -70,9 +73,63 @@ class OrganizationService:
                     Organization.status != OrganizationStatus.DELETED,
                 )
             )
+            .order_by(Organization.created_at.asc())
         )
         result = await db.execute(stmt)
-        return list(result.scalars().all())
+        rows = result.all()
+
+        output: list[dict] = []
+        for org, member_role in rows:
+            # Resolve permissions for user in this organization
+            perms_set: set[str] = set()
+
+            # Organization Owners and Admins receive all application management capabilities by default
+            if member_role in (OrganizationRole.OWNER, OrganizationRole.ADMIN):
+                perms_set.add("pos.device.activate")
+                perms_set.add("pos.device.reassign")
+                perms_set.add("pos.device.revoke")
+                perms_set.add("pos.admin")
+
+            # Query explicit application assignments for this user in this org
+            stmt_assign = (
+                select(ApplicationAssignment)
+                .options(
+                    selectinload(ApplicationAssignment.roles).selectinload(ApplicationRole.permissions)
+                )
+                .where(
+                    and_(
+                        ApplicationAssignment.organization_id == org.id,
+                        ApplicationAssignment.user_id == user_id,
+                        ApplicationAssignment.status == AssignmentStatus.ACTIVE,
+                    )
+                )
+            )
+            res_assign = await db.execute(stmt_assign)
+            assignments = res_assign.scalars().all()
+            for assign in assignments:
+                for r in assign.roles:
+                    for p in r.permissions:
+                        perms_set.add(p.code)
+
+            # Filter if required_permission is specified
+            if required_permission:
+                req_norm = required_permission.strip().lower()
+                # Check direct match or admin wildcard
+                has_perm = (req_norm in perms_set)
+                if not has_perm:
+                    continue
+
+            output.append({
+                "id": org.id,
+                "name": org.name,
+                "registration_number": org.registration_number,
+                "status": org.status,
+                "created_at": org.created_at,
+                "role": member_role,
+                "permissions": sorted(list(perms_set)),
+            })
+
+        return output
 
     @staticmethod
     async def get_organization(

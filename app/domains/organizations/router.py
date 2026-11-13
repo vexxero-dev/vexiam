@@ -1,5 +1,5 @@
 import uuid
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_verified_user
@@ -34,13 +34,16 @@ async def create_organization(
 @router.get(
     "",
     response_model=list[OrganizationResponse],
-    summary="List all organizations the authenticated user belongs to",
+    summary="List all organizations the authenticated user belongs to (supports permission filtering)",
 )
 async def list_organizations(
+    permission: str | None = Query(None, description="Optional permission filter (e.g. pos.device.activate)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await OrganizationService.get_user_organizations(db, current_user.id)
+    return await OrganizationService.get_user_organizations(
+        db, current_user.id, required_permission=permission
+    )
 
 
 @router.get(

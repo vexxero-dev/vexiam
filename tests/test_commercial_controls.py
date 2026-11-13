@@ -114,3 +114,17 @@ async def test_commercial_seat_aggregation_and_reassignment(client: AsyncClient)
         headers=owner_headers,
     )
     assert assign2.status_code == 201
+
+    # 10. Authoritative Entitlements Endpoint Verification
+    ent_res = await client.get(
+        f"/api/v1/licenses/entitlements?organization_id={org_id}&application_code=VEX-COMM-APP",
+        headers=owner_headers,
+    )
+    assert ent_res.status_code == 200
+    ent_data = ent_res.json()
+    assert ent_data["organization_id"] == org_id
+    assert ent_data["application_code"] == "VEX-COMM-APP"
+    assert ent_data["status"] == "ACTIVE"
+    assert ent_data["max_terminals"] == 0  # plans have device_seats: 0
+    assert ent_data["active_terminals"] == 0
+    assert ent_data["available_terminals"] == 0

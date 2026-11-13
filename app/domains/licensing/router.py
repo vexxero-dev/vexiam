@@ -24,10 +24,33 @@ from app.domains.licensing.schemas import (
     DeviceInternalVerificationResponse,
     LicenseIssueRequest,
     LicenseResponse,
+    EntitlementsResponse,
 )
 from app.domains.licensing.service import CommercialAndLicensingService
 
 router = APIRouter(tags=["Subscriptions & Device Licensing"])
+
+
+# Proof of Possession Device Challenge
+@router.get(
+    "/licenses/entitlements",
+    response_model=EntitlementsResponse,
+    summary="Query authoritative terminal seats quota and active POS entitlements for an organization",
+)
+async def get_entitlements(
+    organization_id: uuid.UUID = Query(..., description="Organization / tenant identifier"),
+    location_id: Optional[uuid.UUID] = Query(None, description="Optional target location scope"),
+    application_code: str = Query("VEX-POS", description="Application code (default: VEX-POS)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.get_entitlements(
+        db,
+        actor_user_id=current_user.id,
+        organization_id=organization_id,
+        location_id=location_id,
+        application_code=application_code,
+    )
 
 
 # Proof of Possession Device Challenge

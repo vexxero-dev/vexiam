@@ -19,6 +19,8 @@ class OrganizationResponse(BaseModel):
     registration_number: Optional[str] = None
     status: OrganizationStatus
     created_at: datetime
+    role: Optional[OrganizationRole] = None
+    permissions: list[str] = Field(default_factory=list)
 
 
 class OrganizationMemberResponse(BaseModel):

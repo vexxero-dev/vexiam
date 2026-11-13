@@ -145,3 +145,19 @@ async def test_organization_lifecycle(client: AsyncClient):
     roles_map = {m["user_id"]: m["role"] for m in post_transfer_members.json()}
     assert roles_map[emp_id] == "OWNER"
     assert roles_map[owner_id] == "ADMIN"
+
+    # 13. Verify GET /organizations returns authoritative role and permissions
+    bob_orgs_res = await client.get("/api/v1/organizations", headers=owner_headers)
+    assert bob_orgs_res.status_code == 200
+    bob_org = [o for o in bob_orgs_res.json() if o["id"] == org_id][0]
+    assert bob_org["role"] == "ADMIN"
+    assert "pos.device.activate" in bob_org["permissions"]
+
+    # 14. Verify server-side permission filtering
+    filtered_orgs = await client.get("/api/v1/organizations?permission=pos.device.activate", headers=owner_headers)
+    assert filtered_orgs.status_code == 200
+    assert any(o["id"] == org_id for o in filtered_orgs.json())
+
+    unmatched_orgs = await client.get("/api/v1/organizations?permission=nonexistent.permission", headers=owner_headers)
+    assert unmatched_orgs.status_code == 200
+    assert not any(o["id"] == org_id for o in unmatched_orgs.json())

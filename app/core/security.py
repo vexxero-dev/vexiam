@@ -91,7 +91,7 @@ def create_access_token(
         "jti": str(uuid.uuid4()),
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
-        "iss": "vex-iam",
+        "iss": settings.JWT_ISSUER,
     }
     if claims:
         payload.update(claims)
@@ -117,7 +117,7 @@ def create_refresh_token(
         "jti": str(uuid.uuid4()),
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
-        "iss": "vex-iam",
+        "iss": settings.JWT_ISSUER,
     }
     if claims:
         payload.update(claims)
@@ -174,7 +174,7 @@ def create_email_verification_token(user_id: str, email: str) -> str:
         "type": "email_verification",
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
-        "iss": "vex-iam",
+        "iss": settings.JWT_ISSUER,
     }
     return jwt.encode(payload, get_private_key_pem(), algorithm=settings.ALGORITHM)
 
@@ -184,5 +184,5 @@ def decode_token(token: str) -> Dict[str, Any]:
         token,
         get_public_key_pem(),
         algorithms=[settings.ALGORITHM],
-        issuer="vex-iam"
+        issuer=[settings.JWT_ISSUER, "vex-iam"],
     )

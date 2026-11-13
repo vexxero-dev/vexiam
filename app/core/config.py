@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     
     # Token Settings
+    JWT_ISSUER: str = "https://iam.vexxero.com"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     ALGORITHM: str = "EdDSA"

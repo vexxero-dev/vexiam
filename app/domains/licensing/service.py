@@ -26,12 +26,145 @@ from app.domains.licensing.schemas import (
     OfflineLicensePayload,
     DeviceChallengeResponse,
     MachineHeartbeatRequest,
+    EntitlementsResponse,
 )
 from app.core.security import _private_key, _public_key
 from app.core.config import settings
 
 
 class CommercialAndLicensingService:
+    @staticmethod
+    async def get_entitlements(
+        db: AsyncSession,
+        actor_user_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        location_id: uuid.UUID | None = None,
+        application_code: str = "VEX-POS",
+    ) -> EntitlementsResponse:
+        """
+        Authoritative PDP inspection endpoint for POS terminal capacity & active feature entitlements.
+        """
+        # 1. Verify caller has membership in the organization
+        stmt_actor = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == organization_id,
+                OrganizationMember.user_id == actor_user_id,
+            )
+        )
+        res_actor = await db.execute(stmt_actor)
+        actor = res_actor.scalar_one_or_none()
+        if not actor:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User is not a member of this organization.",
+            )
+
+        # 2. Resolve application
+        code_norm = application_code.strip().upper().replace("VEXXERO", "VEX")
+        stmt_app = select(Application).where(func.upper(Application.code) == code_norm)
+        res_app = await db.execute(stmt_app)
+        app = res_app.scalar_one_or_none()
+        if not app or not app.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Application '{application_code}' not found or inactive.",
+            )
+
+        # 3. Optional location verification
+        if location_id:
+            stmt_loc = select(Location).where(
+                and_(
+                    Location.id == location_id,
+                    Location.organization_id == organization_id,
+                )
+            )
+            res_loc = await db.execute(stmt_loc)
+            loc = res_loc.scalar_one_or_none()
+            if not loc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Specified location not found in this organization.",
+                )
+            if loc.status != LocationStatus.ACTIVE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Location '{loc.name}' is inactive or archived.",
+                )
+
+        # 4. Query active subscriptions
+        now_utc = datetime.now(timezone.utc)
+        stmt_subs = (
+            select(Subscription)
+            .join(Plan, Subscription.plan_id == Plan.id)
+            .where(
+                and_(
+                    Subscription.organization_id == organization_id,
+                    Plan.application_id == app.id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+            )
+            .options(selectinload(Subscription.plan))
+            .order_by(Subscription.created_at.desc())
+        )
+        res_subs = await db.execute(stmt_subs)
+        subs = res_subs.scalars().all()
+
+        valid_subs = []
+        for s in subs:
+            if s.expires_at is None:
+                valid_subs.append(s)
+            else:
+                exp = s.expires_at if s.expires_at.tzinfo is not None else s.expires_at.replace(tzinfo=timezone.utc)
+                if exp > now_utc:
+                    valid_subs.append(s)
+
+        if not valid_subs:
+            return EntitlementsResponse(
+                application_code=app.code,
+                organization_id=organization_id,
+                location_id=location_id,
+                plan_tier="NO_ACTIVE_SUBSCRIPTION",
+                max_terminals=0,
+                active_terminals=0,
+                available_terminals=0,
+                entitlements=[],
+                status="INACTIVE",
+                message="Organization does not hold an active subscription for this application.",
+            )
+
+        total_device_seats = sum(s.plan.device_seats for s in valid_subs if s.plan)
+        primary_plan = valid_subs[0].plan.name if valid_subs[0].plan else "Standard Subscription"
+
+        # 5. Calculate currently active terminal licenses for this application in this org
+        stmt_active_licenses = select(func.count(DeviceLicense.id)).where(
+            and_(
+                DeviceLicense.application_id == app.id,
+                DeviceLicense.status == LicenseStatus.ACTIVE,
+                DeviceLicense.device_id.in_(
+                    select(Device.id).where(Device.organization_id == organization_id)
+                ),
+            )
+        )
+        res_active_licenses = await db.execute(stmt_active_licenses)
+        active_terminals = res_active_licenses.scalar() or 0
+        available_terminals = max(0, total_device_seats - active_terminals)
+
+        # Canonical POS feature entitlements
+        pos_features = ["pos.core", "pos.offline", "pos.multi_terminal", "pos.sync", "pos.reporting"]
+
+        return EntitlementsResponse(
+            application_code=app.code,
+            organization_id=organization_id,
+            location_id=location_id,
+            plan_tier=primary_plan,
+            max_terminals=total_device_seats,
+            active_terminals=active_terminals,
+            available_terminals=available_terminals,
+            entitlements=pos_features,
+            status="ACTIVE",
+            message="Entitlements verified successfully.",
+        )
+
     # ------------------ Subscription Operations ------------------
     @staticmethod
     async def list_plans(db: AsyncSession) -> list[Plan]:

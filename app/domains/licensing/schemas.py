@@ -50,6 +50,19 @@ class SubscriptionResponse(BaseModel):
     plan: Optional[PlanResponse] = None
 
 
+class EntitlementsResponse(BaseModel):
+    application_code: str
+    organization_id: uuid.UUID
+    location_id: Optional[uuid.UUID] = None
+    plan_tier: str
+    max_terminals: int
+    active_terminals: int
+    available_terminals: int
+    entitlements: list[str] = Field(default_factory=list)
+    status: str
+    message: Optional[str] = None
+
+
 # Device & Licensing Schemas
 # Device Challenge & Registration Schemas
 class DeviceChallengeResponse(BaseModel):
