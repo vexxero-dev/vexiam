@@ -24,6 +24,11 @@ import {
   Cpu,
   Activity,
   Clock,
+  MapPin,
+  Edit2,
+  Globe,
+  Store,
+  ChevronDown,
 } from "lucide-react";
 
 interface UserProfile {
@@ -93,12 +98,42 @@ interface DeviceLicenseSummary {
 interface Device {
   id: string;
   organization_id: string;
+  location_id?: string | null;
   name: string;
   fingerprint: string;
   status: string;
   last_heartbeat_at?: string | null;
   created_at: string;
   licenses?: DeviceLicenseSummary[];
+}
+
+interface LocationApplication {
+  id: string;
+  organization_id: string;
+  location_id: string;
+  application_id: string;
+  application_code?: string;
+  application_name?: string;
+  status: string;
+  activated_at: string;
+}
+
+interface OrgLocation {
+  id: string;
+  organization_id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  state_province?: string | null;
+  postal_code?: string | null;
+  country_code?: string | null;
+  timezone: string;
+  status: string;
+  created_at: string;
+  applications?: LocationApplication[];
 }
 
 interface ApplicationRole {
@@ -159,6 +194,24 @@ export default function VexIAMApp() {
   const [newAppCode, setNewAppCode] = useState("");
   const [newAppName, setNewAppName] = useState("");
   const [newAppType, setNewAppType] = useState("WEB");
+
+  // Locations
+  const [locations, setLocations] = useState<OrgLocation[]>([]);
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
+  const [editingLocation, setEditingLocation] = useState<OrgLocation | null>(null);
+  const [locCode, setLocCode] = useState("");
+  const [locName, setLocName] = useState("");
+  const [locDescription, setLocDescription] = useState("");
+  const [locAddress1, setLocAddress1] = useState("");
+  const [locAddress2, setLocAddress2] = useState("");
+  const [locCity, setLocCity] = useState("");
+  const [locState, setLocState] = useState("");
+  const [locPostal, setLocPostal] = useState("");
+  const [locCountry, setLocCountry] = useState("LK");
+  const [locTimezone, setLocTimezone] = useState("Asia/Colombo");
+  const [locStatus, setLocStatus] = useState("ACTIVE");
+  const [locLoading, setLocLoading] = useState(false);
+  const [locError, setLocError] = useState("");
 
   // Subscriptions & Devices
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -261,9 +314,143 @@ export default function VexIAMApp() {
 
   const fetchOrgDetails = async (orgId: string) => {
     loadOrgMembers(orgId);
+    loadOrgLocations(orgId);
     loadOrgSubscriptions(orgId);
     loadOrgDevices(orgId);
     loadOrgAssignments(orgId);
+  };
+
+  const loadOrgLocations = async (orgId: string) => {
+    try {
+      const res = await api.get(`/organizations/${orgId}/locations`);
+      setLocations(res.data);
+    } catch (e) {
+      console.error("Failed to load locations:", e);
+    }
+  };
+
+  const openCreateLocationModal = () => {
+    setEditingLocation(null);
+    setLocCode("");
+    setLocName("");
+    setLocDescription("");
+    setLocAddress1("");
+    setLocAddress2("");
+    setLocCity("");
+    setLocState("");
+    setLocPostal("");
+    setLocCountry("LK");
+    setLocTimezone("Asia/Colombo");
+    setLocStatus("ACTIVE");
+    setLocError("");
+    setLocationModalOpen(true);
+  };
+
+  const openEditLocationModal = (loc: OrgLocation) => {
+    setEditingLocation(loc);
+    setLocCode(loc.code);
+    setLocName(loc.name);
+    setLocDescription(loc.description || "");
+    setLocAddress1(loc.address_line1 || "");
+    setLocAddress2(loc.address_line2 || "");
+    setLocCity(loc.city || "");
+    setLocState(loc.state_province || "");
+    setLocPostal(loc.postal_code || "");
+    setLocCountry(loc.country_code || "LK");
+    setLocTimezone(loc.timezone || "Asia/Colombo");
+    setLocStatus(loc.status || "ACTIVE");
+    setLocError("");
+    setLocationModalOpen(true);
+  };
+
+  const handleSaveLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrg) return;
+    setLocError("");
+    setLocLoading(true);
+
+    try {
+      if (editingLocation) {
+        // PUT /locations/{location_id}
+        await api.put(`/locations/${editingLocation.id}`, {
+          name: locName.trim(),
+          description: locDescription.trim() || null,
+          address_line1: locAddress1.trim() || null,
+          address_line2: locAddress2.trim() || null,
+          city: locCity.trim() || null,
+          state_province: locState.trim() || null,
+          postal_code: locPostal.trim() || null,
+          country_code: locCountry.trim().toUpperCase() || null,
+          timezone: locTimezone.trim() || "UTC",
+          status: locStatus,
+        });
+      } else {
+        // POST /organizations/{org_id}/locations
+        const createdLoc = await api.post(`/organizations/${selectedOrg.id}/locations`, {
+          code: locCode.trim().toUpperCase(),
+          name: locName.trim(),
+          description: locDescription.trim() || null,
+          address_line1: locAddress1.trim() || null,
+          address_line2: locAddress2.trim() || null,
+          city: locCity.trim() || null,
+          state_province: locState.trim() || null,
+          postal_code: locPostal.trim() || null,
+          country_code: locCountry.trim().toUpperCase() || null,
+          timezone: locTimezone.trim() || "UTC",
+        });
+
+        // Automatically enable active applications (e.g. VEX-POS) at the newly created location if present
+        if (applications.length > 0 && createdLoc.data?.id) {
+          for (const app of applications) {
+            try {
+              await api.post(`/locations/${createdLoc.data.id}/applications`, {
+                application_id: app.id,
+              });
+            } catch (appErr) {
+              console.warn(`Could not auto-enable app ${app.code} at location:`, appErr);
+            }
+          }
+        }
+      }
+
+      setLocationModalOpen(false);
+      loadOrgLocations(selectedOrg.id);
+    } catch (err: any) {
+      setLocError(err.response?.data?.detail || "Failed to save location.");
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
+  const handleArchiveLocation = async (loc: OrgLocation) => {
+    if (!selectedOrg) return;
+    if (
+      !confirm(
+        `Are you sure you want to archive location "${loc.name}" (${loc.code})? It will be disabled and preserved for compliance.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      // First deactivate any active applications if user confirmed archival
+      if (loc.applications && loc.applications.length > 0) {
+        for (const app of loc.applications) {
+          if (app.status === "ACTIVE") {
+            try {
+              await api.delete(`/locations/${loc.id}/applications/${app.application_id}`);
+            } catch (err) {
+              console.warn("Failed deactivating application before archive:", err);
+            }
+          }
+        }
+      }
+
+      await api.post(`/locations/${loc.id}/archive`);
+      loadOrgLocations(selectedOrg.id);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to archive location. Ensure devices are reassigned first.");
+    }
   };
 
   const loadOrgAssignments = async (orgId: string) => {
@@ -397,6 +584,18 @@ export default function VexIAMApp() {
       }
     } catch (err: any) {
       alert(err.response?.data?.detail || "Failed to activate license. Check device seat quota.");
+    }
+  };
+
+  const handleReassignDevice = async (deviceId: string, targetLocationId: string) => {
+    if (!selectedOrg) return;
+    try {
+      await api.post(`/devices/${deviceId}/reassign`, {
+        target_location_id: targetLocationId ? targetLocationId : null,
+      });
+      loadOrgDevices(selectedOrg.id);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to reassign device.");
     }
   };
 
@@ -1024,6 +1223,147 @@ export default function VexIAMApp() {
                     </div>
                   </div>
 
+                  {/* Locations & Operating Branches */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Store className="w-4 h-4 text-emerald-400" />
+                          <span>Locations & Operating Branches ({locations.length})</span>
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Operating scopes for POS terminals, regional licensing, and multi-branch operations.
+                        </p>
+                      </div>
+                      <button
+                        onClick={openCreateLocationModal}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition self-start sm:self-auto shadow-sm"
+                      >
+                        <PlusCircle className="w-3.5 h-3.5" />
+                        <span>Add Location</span>
+                      </button>
+                    </div>
+
+                    {locations.length === 0 ? (
+                      <div className="p-6 bg-slate-800/30 border border-slate-800 rounded-xl text-center">
+                        <MapPin className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                        <p className="text-xs text-slate-300 font-medium mb-1">No operational locations established.</p>
+                        <p className="text-[11px] text-slate-500 max-w-sm mx-auto mb-3">
+                          Hardware terminals like VEX POS require at least one active location to complete device activation.
+                        </p>
+                        <button
+                          onClick={openCreateLocationModal}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400 hover:text-emerald-300"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
+                          <span>Establish First Location</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {locations.map((loc) => {
+                          const isArchived = loc.status === "ARCHIVED";
+                          const isActive = loc.status === "ACTIVE";
+                          const assignedDevicesCount = devices.filter((d) => d.location_id === loc.id).length;
+
+                          return (
+                            <div
+                              key={loc.id}
+                              className={`p-4 rounded-xl border flex flex-col justify-between transition ${
+                                isArchived
+                                  ? "bg-slate-900/40 border-slate-800 opacity-60"
+                                  : "bg-slate-800/40 border-slate-700/60 hover:border-slate-600"
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                                      {loc.code}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(loc.id, loc.id)}
+                                      title="Copy Location UUID"
+                                      className="text-slate-500 hover:text-slate-300 transition"
+                                    >
+                                      {copiedOrgId === loc.id ? (
+                                        <Check className="w-3 h-3 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  </div>
+                                  <span
+                                    className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                                      isActive
+                                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                        : isArchived
+                                        ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                        : "bg-slate-700/50 text-slate-300 border-slate-600"
+                                    }`}
+                                  >
+                                    {loc.status}
+                                  </span>
+                                </div>
+
+                                <h4 className="text-sm font-semibold text-white mb-1">{loc.name}</h4>
+                                {loc.description && (
+                                  <p className="text-xs text-slate-400 mb-2">{loc.description}</p>
+                                )}
+
+                                <div className="text-[11px] text-slate-400 space-y-1 mb-3">
+                                  {(loc.address_line1 || loc.city || loc.country_code) && (
+                                    <div className="flex items-start gap-1 text-slate-300">
+                                      <MapPin className="w-3 h-3 text-emerald-400 mt-0.5 shrink-0" />
+                                      <span className="truncate">
+                                        {[loc.address_line1, loc.city, loc.state_province, loc.country_code]
+                                          .filter(Boolean)
+                                          .join(", ")}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-1 text-slate-400">
+                                    <Globe className="w-3 h-3 text-cyan-400 shrink-0" />
+                                    <span>Timezone: {loc.timezone || "UTC"}</span>
+                                  </div>
+                                </div>
+
+                                <div className="p-2 bg-slate-900/60 rounded-lg border border-slate-800/80 mb-3 flex items-center justify-between text-xs">
+                                  <span className="text-slate-400">Assigned Terminals:</span>
+                                  <span className="font-mono font-bold text-white">
+                                    {assignedDevicesCount} {assignedDevicesCount === 1 ? "device" : "devices"}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/60">
+                                {!isArchived && (
+                                  <button
+                                    onClick={() => openEditLocationModal(loc)}
+                                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                    <span>Edit</span>
+                                  </button>
+                                )}
+                                {!isArchived && (
+                                  <button
+                                    onClick={() => handleArchiveLocation(loc)}
+                                    title="Archive location"
+                                    className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Subscriptions & Commercial Plans Management */}
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
                     <div className="flex items-center justify-between mb-4">
@@ -1317,12 +1657,14 @@ export default function VexIAMApp() {
                                 (l) => l.status === "ACTIVE"
                               );
 
+                              const assignedLoc = locations.find((l) => l.id === dev.location_id);
+
                               return (
                                 <div
                                   key={dev.id}
                                   className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                                 >
-                                  <div>
+                                  <div className="space-y-1.5">
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <h4 className="font-semibold text-sm text-white">{dev.name}</h4>
                                       <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.2 rounded font-semibold">
@@ -1339,7 +1681,7 @@ export default function VexIAMApp() {
                                         </span>
                                       )}
                                     </div>
-                                    <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 flex-wrap">
+                                    <div className="flex items-center gap-3 text-[11px] text-slate-400 flex-wrap">
                                       <p className="font-mono">
                                         Fingerprint: {dev.fingerprint}
                                       </p>
@@ -1365,6 +1707,23 @@ export default function VexIAMApp() {
                                           </strong>
                                         </span>
                                       </div>
+                                    </div>
+                                    {/* Location Assignment Scope */}
+                                    <div className="flex items-center gap-2 pt-1">
+                                      <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                      <span className="text-[11px] text-slate-400">Location:</span>
+                                      <select
+                                        value={dev.location_id || ""}
+                                        onChange={(e) => handleReassignDevice(dev.id, e.target.value)}
+                                        className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-emerald-500"
+                                      >
+                                        <option value="">Unassigned (Organization Scope)</option>
+                                        {locations.map((l) => (
+                                          <option key={l.id} value={l.id}>
+                                            {l.name} ({l.code}) {l.status === "ARCHIVED" ? "[Archived]" : ""}
+                                          </option>
+                                        ))}
+                                      </select>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2">
@@ -1519,6 +1878,190 @@ export default function VexIAMApp() {
             </div>
           </div>
         )}
+        {/* Location Add / Edit Modal */}
+        {locationModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl my-8">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Store className="w-4 h-4 text-emerald-400" />
+                    <span>{editingLocation ? "Edit Operating Location" : "Establish New Location"}</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {editingLocation
+                      ? `Updating details for location branch "${editingLocation.code}".`
+                      : `Add a store branch or service location for ${selectedOrg?.name || "organization"}.`}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setLocationModalOpen(false)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {locError && (
+                <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{locError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveLocation} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Location Code <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      disabled={!!editingLocation}
+                      value={locCode}
+                      onChange={(e) => setLocCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. MAIN, BRANCH-01"
+                      className="w-full bg-slate-800 border border-slate-700 disabled:opacity-50 text-white text-xs rounded-xl px-3 py-2.5 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-0.5">Unique identifier inside organization</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Location Name <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={locName}
+                      onChange={(e) => setLocName(e.target.value)}
+                      placeholder="e.g. Colombo Head Branch"
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Description</label>
+                  <input
+                    type="text"
+                    value={locDescription}
+                    onChange={(e) => setLocDescription(e.target.value)}
+                    placeholder="e.g. Flagship retail outlet & cashier counter"
+                    className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Address Line 1</label>
+                    <input
+                      type="text"
+                      value={locAddress1}
+                      onChange={(e) => setLocAddress1(e.target.value)}
+                      placeholder="e.g. 100 Galle Road"
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Address Line 2</label>
+                    <input
+                      type="text"
+                      value={locAddress2}
+                      onChange={(e) => setLocAddress2(e.target.value)}
+                      placeholder="Floor, Unit, etc."
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">City</label>
+                    <input
+                      type="text"
+                      value={locCity}
+                      onChange={(e) => setLocCity(e.target.value)}
+                      placeholder="Colombo"
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Province/State</label>
+                    <input
+                      type="text"
+                      value={locState}
+                      onChange={(e) => setLocState(e.target.value)}
+                      placeholder="Western"
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Country</label>
+                    <input
+                      type="text"
+                      maxLength={10}
+                      value={locCountry}
+                      onChange={(e) => setLocCountry(e.target.value.toUpperCase())}
+                      placeholder="LK"
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 uppercase"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Timezone</label>
+                    <input
+                      type="text"
+                      required
+                      value={locTimezone}
+                      onChange={(e) => setLocTimezone(e.target.value)}
+                      placeholder="Asia/Colombo"
+                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  {editingLocation && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Status</label>
+                      <select
+                        value={locStatus}
+                        onChange={(e) => setLocStatus(e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="INACTIVE">INACTIVE</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2 pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setLocationModalOpen(false)}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2.5 rounded-xl transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={locLoading || !locCode || !locName}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-white text-xs font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-1 shadow-sm"
+                  >
+                    {locLoading ? "Saving..." : editingLocation ? "Update Location" : "Create Location"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* Assign User to Application Modal */}
         {assigningApp && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
