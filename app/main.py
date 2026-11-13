@@ -26,6 +26,19 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE application_assignments ADD COLUMN IF NOT EXISTS assignment_version INTEGER NOT NULL DEFAULT 1;"))
         await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_sequence INTEGER NOT NULL DEFAULT 0;"))
         await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS location_id UUID NULL;"))
+        
+        # Applications table columns
+        await conn.execute(text("ALTER TABLE applications ADD COLUMN IF NOT EXISTS platform_type VARCHAR(30) NOT NULL DEFAULT 'WINDOWS_DESKTOP';"))
+        await conn.execute(text("ALTER TABLE applications ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE';"))
+        await conn.execute(text("ALTER TABLE applications ADD COLUMN IF NOT EXISTS current_version VARCHAR(30) NOT NULL DEFAULT '1.0.0';"))
+        await conn.execute(text("ALTER TABLE applications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW();"))
+
+        # Device licenses table columns
+        await conn.execute(text("ALTER TABLE device_licenses ADD COLUMN IF NOT EXISTS current_subscription_id UUID NULL;"))
+        await conn.execute(text("ALTER TABLE device_licenses ADD COLUMN IF NOT EXISTS installation_id UUID NULL;"))
+        await conn.execute(text("ALTER TABLE device_licenses ADD COLUMN IF NOT EXISTS organization_id UUID NULL;"))
+        await conn.execute(text("ALTER TABLE device_licenses ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMP WITH TIME ZONE NULL;"))
+        await conn.execute(text("ALTER TABLE device_licenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW();"))
     
     # Automatically seed official Vexxero ecosystem apps and default plans
     async with AsyncSessionLocal() as session:
