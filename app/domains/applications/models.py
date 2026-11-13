@@ -18,6 +18,38 @@ class ApplicationType(str, enum.Enum):
     SERVICE = "SERVICE"
 
 
+class PlatformType(str, enum.Enum):
+    WINDOWS_DESKTOP = "WINDOWS_DESKTOP"
+    WEB = "WEB"
+    MOBILE = "MOBILE"
+    SERVICE = "SERVICE"
+
+
+class ApplicationStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    DISABLED = "DISABLED"
+    DEPRECATED = "DEPRECATED"
+
+
+class ClientType(str, enum.Enum):
+    DESKTOP = "DESKTOP"
+    WEB = "WEB"
+    MOBILE = "MOBILE"
+    SERVICE = "SERVICE"
+
+
+class ClientStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    REVOKED = "REVOKED"
+
+
+class InstallationStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    DECOMMISSIONED = "DECOMMISSIONED"
+
+
 class AssignmentStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     REVOKED = "REVOKED"
@@ -53,9 +85,22 @@ class Application(Base):
     type: Mapped[ApplicationType] = mapped_column(
         SQLEnum(ApplicationType, native_enum=False), default=ApplicationType.WEB, nullable=False
     )
+    platform_type: Mapped[PlatformType] = mapped_column(
+        SQLEnum(PlatformType, native_enum=False), default=PlatformType.WINDOWS_DESKTOP, nullable=False
+    )
+    status: Mapped[ApplicationStatus] = mapped_column(
+        SQLEnum(ApplicationStatus, native_enum=False), default=ApplicationStatus.ACTIVE, nullable=False
+    )
+    current_version: Mapped[str] = mapped_column(String(30), default="1.0.0", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
 
     roles: Mapped[list["ApplicationRole"]] = relationship(
@@ -63,6 +108,12 @@ class Application(Base):
     )
     permissions: Mapped[list["Permission"]] = relationship(
         "Permission", back_populates="application", cascade="all, delete-orphan"
+    )
+    clients: Mapped[list["ApplicationClient"]] = relationship(
+        "ApplicationClient", back_populates="application", cascade="all, delete-orphan"
+    )
+    installations: Mapped[list["ApplicationInstallation"]] = relationship(
+        "ApplicationInstallation", back_populates="application", cascade="all, delete-orphan"
     )
 
 
@@ -149,3 +200,66 @@ class ApplicationAssignment(Base):
     )
     application: Mapped["Application"] = relationship("Application")
     user: Mapped["User"] = relationship("User")
+
+
+class ApplicationClient(Base):
+    __tablename__ = "application_clients"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    client_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    client_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    client_type: Mapped[ClientType] = mapped_column(
+        SQLEnum(ClientType, native_enum=False), default=ClientType.DESKTOP, nullable=False
+    )
+    status: Mapped[ClientStatus] = mapped_column(
+        SQLEnum(ClientStatus, native_enum=False), default=ClientStatus.ACTIVE, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    application: Mapped["Application"] = relationship("Application", back_populates="clients")
+
+
+class ApplicationInstallation(Base):
+    __tablename__ = "application_installations"
+    __table_args__ = (
+        UniqueConstraint("application_id", "device_id", "installation_id", name="uq_app_device_installation"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    installation_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(30), default="1.0.0", nullable=False)
+    platform: Mapped[str] = mapped_column(String(30), default="WINDOWS", nullable=False)
+    status: Mapped[InstallationStatus] = mapped_column(
+        SQLEnum(InstallationStatus, native_enum=False), default=InstallationStatus.ACTIVE, nullable=False
+    )
+    registered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    application: Mapped["Application"] = relationship("Application", back_populates="installations")
+    device: Mapped["app.domains.licensing.models.Device"] = relationship("Device", backref="installations")
+

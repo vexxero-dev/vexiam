@@ -10,7 +10,16 @@ from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.domains.subscriptions.models import Plan, Subscription, OwnerType, SubscriptionStatus
-from app.domains.licensing.models import Device, DeviceLicense, DeviceChallenge, DeviceStatus, LicenseStatus
+from app.domains.licensing.models import (
+    Device,
+    DeviceLicense,
+    DeviceLicenseAllocation,
+    DeviceChallenge,
+    DeviceStatus,
+    LicenseStatus,
+    AllocationStatus,
+    AllocationReleaseReason,
+)
 from app.domains.applications.models import Application
 from app.domains.organizations.models import Organization, OrganizationMember, OrganizationRole
 from app.domains.locations.models import Location, LocationStatus, LocationApplication, LocationApplicationStatus
@@ -27,6 +36,9 @@ from app.domains.licensing.schemas import (
     DeviceChallengeResponse,
     MachineHeartbeatRequest,
     EntitlementsResponse,
+    LicensingAdminDashboardResponse,
+    SubscriptionAllocationProvenance,
+    DeviceLicenseAllocationSummary,
 )
 from app.core.security import _private_key, _public_key
 from app.core.config import settings
@@ -163,6 +175,133 @@ class CommercialAndLicensingService:
             entitlements=pos_features,
             status="ACTIVE",
             message="Entitlements verified successfully.",
+        )
+
+    # ------------------ Admin Dashboard & Provenance Inspection ------------------
+    @staticmethod
+    async def get_admin_licensing_dashboard(
+        db: AsyncSession,
+        organization_id: uuid.UUID,
+        application_code: str = "VEX-POS",
+    ) -> LicensingAdminDashboardResponse:
+        """
+        Exposes pooled capacity, subscription allocation provenance, and allocation history
+        strictly for authorized IAM administrators (Specification Section 17).
+        """
+        stmt_org = select(Organization).where(Organization.id == organization_id)
+        res_org = await db.execute(stmt_org)
+        org = res_org.scalar_one_or_none()
+        if not org:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found.",
+            )
+
+        code_norm = application_code.strip().upper().replace("VEXXERO", "VEX")
+        stmt_app = select(Application).where(func.upper(Application.code) == code_norm)
+        res_app = await db.execute(stmt_app)
+        app = res_app.scalar_one_or_none()
+        if not app:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Application '{application_code}' not found.",
+            )
+
+        # Query all active subscriptions for this application in the org
+        stmt_subs = (
+            select(Subscription)
+            .join(Plan, Subscription.plan_id == Plan.id)
+            .where(
+                and_(
+                    Subscription.organization_id == organization_id,
+                    Plan.application_id == app.id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+            )
+            .options(selectinload(Subscription.plan))
+            .order_by(Subscription.expires_at.asc().nulls_last(), Subscription.created_at.asc())
+        )
+        res_subs = await db.execute(stmt_subs)
+        subs = res_subs.scalars().all()
+
+        # Query allocations count per subscription
+        sub_ids = [s.id for s in subs]
+        stmt_alloc_counts = (
+            select(DeviceLicenseAllocation.subscription_id, func.count(DeviceLicenseAllocation.id))
+            .join(DeviceLicense, DeviceLicenseAllocation.device_license_id == DeviceLicense.id)
+            .where(
+                and_(
+                    DeviceLicenseAllocation.allocation_status == AllocationStatus.ACTIVE,
+                    DeviceLicense.status == LicenseStatus.ACTIVE,
+                    DeviceLicenseAllocation.subscription_id.in_(sub_ids) if sub_ids else False,
+                )
+            )
+            .group_by(DeviceLicenseAllocation.subscription_id)
+        )
+        res_alloc_counts = await db.execute(stmt_alloc_counts)
+        alloc_counts_map = dict(res_alloc_counts.all()) if sub_ids else {}
+
+        sub_provenance_list: list[SubscriptionAllocationProvenance] = []
+        total_pooled = 0
+        total_allocated = 0
+
+        for s in subs:
+            capacity = s.plan.device_seats if s.plan else 0
+            allocated = alloc_counts_map.get(s.id, 0)
+            total_pooled += capacity
+            total_allocated += allocated
+            sub_provenance_list.append(
+                SubscriptionAllocationProvenance(
+                    subscription_id=s.id,
+                    plan_code=s.plan.code if s.plan else "UNKNOWN",
+                    plan_name=s.plan.name if s.plan else "Standard Subscription",
+                    allocated_seats=allocated,
+                    total_seats=capacity,
+                    expires_at=s.expires_at,
+                    created_at=s.created_at,
+                )
+            )
+
+        # Recent allocation ledger records for audit
+        stmt_recent_alloc = (
+            select(DeviceLicenseAllocation)
+            .join(DeviceLicense, DeviceLicenseAllocation.device_license_id == DeviceLicense.id)
+            .where(
+                and_(
+                    DeviceLicense.application_id == app.id,
+                    DeviceLicense.organization_id == organization_id,
+                )
+            )
+            .order_by(DeviceLicenseAllocation.allocated_at.desc())
+            .limit(20)
+        )
+        res_recent_alloc = await db.execute(stmt_recent_alloc)
+        recent_allocs = res_recent_alloc.scalars().all()
+
+        available_seats = max(0, total_pooled - total_allocated)
+        utilization = (total_allocated / total_pooled * 100.0) if total_pooled > 0 else 0.0
+
+        return LicensingAdminDashboardResponse(
+            organization_id=org.id,
+            organization_name=org.name,
+            application_code=app.code,
+            total_pooled_capacity=total_pooled,
+            active_device_licenses_count=total_allocated,
+            available_seats=available_seats,
+            utilization_percentage=round(utilization, 2),
+            subscriptions=sub_provenance_list,
+            recent_allocations=[
+                DeviceLicenseAllocationSummary(
+                    id=a.id,
+                    device_license_id=a.device_license_id,
+                    subscription_id=a.subscription_id,
+                    allocation_status=a.allocation_status,
+                    allocated_at=a.allocated_at,
+                    released_at=a.released_at,
+                    release_reason=a.release_reason,
+                )
+                for a in recent_allocs
+            ],
         )
 
     # ------------------ Subscription Operations ------------------
@@ -437,7 +576,56 @@ class CommercialAndLicensingService:
                 detail="Active application not found.",
             )
 
+        # Verify client authorization if client_code is supplied
+        if req.client_code:
+            from app.domains.applications.models import ApplicationClient, ClientStatus
+            stmt_client = select(ApplicationClient).where(
+                and_(
+                    ApplicationClient.application_id == app.id,
+                    ApplicationClient.client_code == req.client_code.strip().upper(),
+                    ApplicationClient.status == ClientStatus.ACTIVE,
+                )
+            )
+            res_client = await db.execute(stmt_client)
+            client_record = res_client.scalar_one_or_none()
+            if not client_record:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Application client '{req.client_code}' is not authorized for application {app.code}.",
+                )
+
+        # Installation tracking: if installation_id supplied, resolve or create ApplicationInstallation
+        installation_record = None
+        if req.installation_id:
+            from app.domains.applications.models import ApplicationInstallation, InstallationStatus
+            stmt_inst = select(ApplicationInstallation).where(
+                and_(
+                    ApplicationInstallation.application_id == app.id,
+                    ApplicationInstallation.device_id == device.id,
+                    ApplicationInstallation.installation_id == req.installation_id,
+                )
+            )
+            res_inst = await db.execute(stmt_inst)
+            installation_record = res_inst.scalar_one_or_none()
+            now_utc = datetime.now(timezone.utc)
+            if not installation_record:
+                installation_record = ApplicationInstallation(
+                    application_id=app.id,
+                    device_id=device.id,
+                    installation_id=req.installation_id,
+                    version="1.0.0",
+                    platform="WINDOWS",
+                    status=InstallationStatus.ACTIVE,
+                    registered_at=now_utc,
+                    last_seen_at=now_utc,
+                )
+                db.add(installation_record)
+                await db.flush()
+            else:
+                installation_record.last_seen_at = now_utc
+
         # Check active subscriptions and calculate total device seat quota across plans
+        # Concurrency protection: lock rows for update and sort by earliest expiration first (FIFO)
         stmt_subs = (
             select(Subscription)
             .join(Plan, Subscription.plan_id == Plan.id)
@@ -449,7 +637,7 @@ class CommercialAndLicensingService:
                 )
             )
             .options(selectinload(Subscription.plan))
-            .order_by(Subscription.created_at.desc())
+            .order_by(Subscription.expires_at.asc().nulls_last(), Subscription.created_at.asc())
             .with_for_update()
         )
         res_subs = await db.execute(stmt_subs)
@@ -464,19 +652,59 @@ class CommercialAndLicensingService:
         total_device_seats = sum(s.plan.device_seats for s in active_subs if s.plan)
 
         # Check if device already holds an active license for this application (Idempotent activation)
-        stmt_existing_lic = select(DeviceLicense).where(
-            and_(
-                DeviceLicense.device_id == device.id,
-                DeviceLicense.application_id == app.id,
-                DeviceLicense.status == LicenseStatus.ACTIVE,
+        stmt_existing_lic = (
+            select(DeviceLicense)
+            .where(
+                and_(
+                    DeviceLicense.device_id == device.id,
+                    DeviceLicense.application_id == app.id,
+                    DeviceLicense.status == LicenseStatus.ACTIVE,
+                )
             )
+            .options(selectinload(DeviceLicense.allocations))
         )
         res_existing_lic = await db.execute(stmt_existing_lic)
         existing_license = res_existing_lic.scalar_one_or_none()
 
-        if not existing_license:
-            # Verify device seats quota only for new activations
-            stmt_licensed = select(func.count(DeviceLicense.id)).where(
+        # Query existing active allocations count grouped by subscription_id to accurately calculate remaining seats
+        stmt_alloc_counts = (
+            select(DeviceLicenseAllocation.subscription_id, func.count(DeviceLicenseAllocation.id))
+            .join(DeviceLicense, DeviceLicenseAllocation.device_license_id == DeviceLicense.id)
+            .where(
+                and_(
+                    DeviceLicenseAllocation.allocation_status == AllocationStatus.ACTIVE,
+                    DeviceLicense.status == LicenseStatus.ACTIVE,
+                    DeviceLicenseAllocation.subscription_id.in_([s.id for s in active_subs]),
+                )
+            )
+            .group_by(DeviceLicenseAllocation.subscription_id)
+        )
+        res_alloc_counts = await db.execute(stmt_alloc_counts)
+        allocation_map = dict(res_alloc_counts.all())
+
+        assigned_subscription = None
+
+        if existing_license:
+            # Check if current subscription is still active and valid
+            curr_sub = next((s for s in active_subs if s.id == existing_license.current_subscription_id), None)
+            if curr_sub:
+                assigned_subscription = curr_sub
+            else:
+                # Need to reallocate to an active subscription with available capacity
+                for sub in active_subs:
+                    used = allocation_map.get(sub.id, 0)
+                    capacity = sub.plan.device_seats if sub.plan else 0
+                    if used < capacity:
+                        assigned_subscription = sub
+                        break
+                if not assigned_subscription:
+                    # Keep under current if within total pool or fallback to primary
+                    assigned_subscription = active_subs[0]
+        else:
+            # New activation: Total seat quota check
+            current_active_licenses = sum(allocation_map.values())
+            # Fallback if unallocated legacy licenses exist
+            stmt_unallocated = select(func.count(DeviceLicense.id)).where(
                 and_(
                     DeviceLicense.application_id == app.id,
                     DeviceLicense.status == LicenseStatus.ACTIVE,
@@ -485,14 +713,25 @@ class CommercialAndLicensingService:
                     ),
                 )
             )
-            res_licensed = await db.execute(stmt_licensed)
-            current_active_licenses = res_licensed.scalar() or 0
+            res_unallocated = await db.execute(stmt_unallocated)
+            total_active_device_licenses = res_unallocated.scalar() or 0
 
-            if current_active_licenses >= total_device_seats:
+            if total_active_device_licenses >= total_device_seats:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Device seat quota exceeded (Limit: {total_device_seats}, Current: {current_active_licenses}). Upgrade subscription to license more terminals.",
+                    detail=f"Device seat quota exceeded (Limit: {total_device_seats}, Current: {total_active_device_licenses}). Upgrade subscription to license more terminals.",
                 )
+
+            # Atomic FIFO selection: choose earliest-expiring subscription with available capacity
+            for sub in active_subs:
+                used = allocation_map.get(sub.id, 0)
+                capacity = sub.plan.device_seats if sub.plan else 0
+                if used < capacity:
+                    assigned_subscription = sub
+                    break
+
+            if not assigned_subscription:
+                assigned_subscription = active_subs[0]
 
         # Fetch organization for metadata
         stmt_org = select(Organization).where(Organization.id == device.organization_id)
@@ -508,6 +747,7 @@ class CommercialAndLicensingService:
         payload = OfflineLicensePayload(
             license_id=license_id,
             device_id=str(device.id),
+            installation_id=req.installation_id,
             organization_id=str(device.organization_id),
             organization_name=org_name,
             application_code=app.code,
@@ -515,6 +755,7 @@ class CommercialAndLicensingService:
             fingerprint=device.fingerprint,
             issued_at=int(now.timestamp()),
             expires_at=int(expires_at.timestamp()),
+            offline_grace_until=int(expires_at.timestamp()),
             grace_period_days=settings.OFFLINE_GRACE_PERIOD_DAYS,
         )
 
@@ -530,12 +771,35 @@ class CommercialAndLicensingService:
             existing_license.signature = signature_b64
             existing_license.expires_at = expires_at
             existing_license.issued_at = now
+            if installation_record:
+                existing_license.installation_id = installation_record.id
+            existing_license.organization_id = device.organization_id
+
+            # If subscription assignment changed, release old and create new allocation
+            if existing_license.current_subscription_id != assigned_subscription.id:
+                for alloc in existing_license.allocations:
+                    if alloc.allocation_status == AllocationStatus.ACTIVE:
+                        alloc.allocation_status = AllocationStatus.RELEASED
+                        alloc.released_at = now
+                        alloc.release_reason = AllocationReleaseReason.QUOTA_REBALANCED
+
+                new_alloc = DeviceLicenseAllocation(
+                    device_license_id=existing_license.id,
+                    subscription_id=assigned_subscription.id,
+                    allocation_status=AllocationStatus.ACTIVE,
+                    allocated_at=now,
+                )
+                db.add(new_alloc)
+                existing_license.current_subscription_id = assigned_subscription.id
             device_license = existing_license
         else:
             device_license = DeviceLicense(
                 id=uuid.UUID(license_id),
                 device_id=device.id,
                 application_id=app.id,
+                installation_id=installation_record.id if installation_record else None,
+                organization_id=device.organization_id,
+                current_subscription_id=assigned_subscription.id,
                 signed_payload=payload_json,
                 signature=signature_b64,
                 status=LicenseStatus.ACTIVE,
@@ -543,6 +807,16 @@ class CommercialAndLicensingService:
                 issued_at=now,
             )
             db.add(device_license)
+            await db.flush()
+
+            # Record allocation history ledger entry
+            allocation = DeviceLicenseAllocation(
+                device_license_id=device_license.id,
+                subscription_id=assigned_subscription.id,
+                allocation_status=AllocationStatus.ACTIVE,
+                allocated_at=now,
+            )
+            db.add(allocation)
 
         await db.commit()
         await db.refresh(device_license)
@@ -551,6 +825,7 @@ class CommercialAndLicensingService:
         device_license.organization_id = device.organization_id
         device_license.organization_name = org_name
         device_license.product_name = app.name
+        device_license.subscription_id = assigned_subscription.id
 
         return device_license
 
@@ -586,15 +861,25 @@ class CommercialAndLicensingService:
         device.status = DeviceStatus.REVOKED
 
         # Mark all active device licenses revoked to release seat quota
-        stmt_lics = select(DeviceLicense).where(
-            and_(
-                DeviceLicense.device_id == device.id,
-                DeviceLicense.status == LicenseStatus.ACTIVE,
+        stmt_lics = (
+            select(DeviceLicense)
+            .options(selectinload(DeviceLicense.allocations))
+            .where(
+                and_(
+                    DeviceLicense.device_id == device.id,
+                    DeviceLicense.status == LicenseStatus.ACTIVE,
+                )
             )
         )
         res_lics = await db.execute(stmt_lics)
+        now_revoke = datetime.now(timezone.utc)
         for lic in res_lics.scalars().all():
             lic.status = LicenseStatus.REVOKED
+            for alloc in lic.allocations:
+                if alloc.allocation_status == AllocationStatus.ACTIVE:
+                    alloc.allocation_status = AllocationStatus.RELEASED
+                    alloc.released_at = now_revoke
+                    alloc.release_reason = AllocationReleaseReason.DEVICE_REVOKED
 
         await db.commit()
         await db.refresh(device)
@@ -751,10 +1036,16 @@ class CommercialAndLicensingService:
         device.location_id = req.target_location_id
 
         revoked_count = 0
+        now_reassign = datetime.now(timezone.utc)
         for lic in device.licenses:
             if lic.status == LicenseStatus.ACTIVE:
                 lic.status = LicenseStatus.REVOKED
                 revoked_count += 1
+                for alloc in lic.allocations:
+                    if alloc.allocation_status == AllocationStatus.ACTIVE:
+                        alloc.allocation_status = AllocationStatus.RELEASED
+                        alloc.released_at = now_reassign
+                        alloc.release_reason = AllocationReleaseReason.MANUAL_REASSIGNMENT
 
         now = datetime.now(timezone.utc)
         await db.flush()

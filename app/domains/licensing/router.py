@@ -25,6 +25,7 @@ from app.domains.licensing.schemas import (
     LicenseIssueRequest,
     LicenseResponse,
     EntitlementsResponse,
+    LicensingAdminDashboardResponse,
 )
 from app.domains.licensing.service import CommercialAndLicensingService
 
@@ -32,6 +33,24 @@ router = APIRouter(tags=["Subscriptions & Device Licensing"])
 
 
 # Proof of Possession Device Challenge
+@router.get(
+    "/admin/licensing/dashboard",
+    response_model=LicensingAdminDashboardResponse,
+    summary="Admin dashboard for pooled capacity, subscription allocation provenance, and audit logs (Platform Admin only)",
+)
+async def get_admin_licensing_dashboard(
+    organization_id: uuid.UUID = Query(..., description="Organization identifier"),
+    application_code: str = Query("VEX-POS", description="Application code (default: VEX-POS)"),
+    _admin: bool = Depends(require_platform_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.get_admin_licensing_dashboard(
+        db,
+        organization_id=organization_id,
+        application_code=application_code,
+    )
+
+
 @router.get(
     "/licenses/entitlements",
     response_model=EntitlementsResponse,

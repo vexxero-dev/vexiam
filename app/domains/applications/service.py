@@ -7,10 +7,16 @@ from fastapi import HTTPException, status
 from app.domains.subscriptions.models import Subscription, Plan, SubscriptionStatus
 from app.domains.applications.models import (
     Application,
+    ApplicationStatus,
+    PlatformType,
     ApplicationRole,
     Permission,
     ApplicationAssignment,
     AssignmentStatus,
+    ApplicationClient,
+    ClientStatus,
+    ApplicationInstallation,
+    InstallationStatus,
 )
 from app.domains.organizations.models import OrganizationMember, OrganizationRole
 from app.domains.identity.models import User
@@ -42,6 +48,9 @@ class ApplicationService:
             name=req.name,
             description=req.description,
             type=req.type,
+            platform_type=req.platform_type,
+            status=ApplicationStatus.ACTIVE,
+            current_version=req.current_version,
             is_active=True,
         )
         db.add(app)
@@ -488,3 +497,110 @@ class ApplicationService:
             roles=roles_list,
             permissions=list(perms_set),
         )
+
+    # ------------------ Application Client Management ------------------
+    @staticmethod
+    async def create_client(
+        db: AsyncSession, application_id: uuid.UUID, client_code: str, client_name: str, client_type: str = "DESKTOP"
+    ) -> ApplicationClient:
+        stmt_app = select(Application).where(Application.id == application_id)
+        res_app = await db.execute(stmt_app)
+        app = res_app.scalar_one_or_none()
+        if not app:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Application not found.",
+            )
+
+        code_clean = client_code.strip().upper()
+        stmt_existing = select(ApplicationClient).where(ApplicationClient.client_code == code_clean)
+        res_existing = await db.execute(stmt_existing)
+        if res_existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Application client '{code_clean}' already exists.",
+            )
+
+        client = ApplicationClient(
+            application_id=application_id,
+            client_code=code_clean,
+            client_name=client_name,
+            client_type=client_type,
+            status=ClientStatus.ACTIVE,
+        )
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+        return client
+
+    @staticmethod
+    async def list_clients(db: AsyncSession, application_id: uuid.UUID) -> list[ApplicationClient]:
+        stmt = select(ApplicationClient).where(ApplicationClient.application_id == application_id).order_by(ApplicationClient.created_at.asc())
+        res = await db.execute(stmt)
+        return list(res.scalars().all())
+
+    # ------------------ Application Installation Management ------------------
+    @staticmethod
+    async def register_installation(
+        db: AsyncSession,
+        application_id: uuid.UUID,
+        device_id: uuid.UUID,
+        installation_id: str,
+        version: str = "1.0.0",
+        platform: str = "WINDOWS",
+    ) -> ApplicationInstallation:
+        from app.domains.licensing.models import Device
+
+        stmt_app = select(Application).where(Application.id == application_id)
+        res_app = await db.execute(stmt_app)
+        app = res_app.scalar_one_or_none()
+        if not app or not app.is_active or app.status != ApplicationStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Application not found, inactive, or disabled.",
+            )
+
+        stmt_dev = select(Device).where(Device.id == device_id)
+        res_dev = await db.execute(stmt_dev)
+        device = res_dev.scalar_one_or_none()
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Device not found.",
+            )
+
+        stmt_inst = select(ApplicationInstallation).where(
+            and_(
+                ApplicationInstallation.application_id == application_id,
+                ApplicationInstallation.device_id == device_id,
+                ApplicationInstallation.installation_id == installation_id,
+            )
+        )
+        res_inst = await db.execute(stmt_inst)
+        existing = res_inst.scalar_one_or_none()
+        now = datetime.now(timezone.utc)
+
+        if existing:
+            existing.version = version
+            existing.platform = platform
+            existing.last_seen_at = now
+            existing.status = InstallationStatus.ACTIVE
+            await db.commit()
+            await db.refresh(existing)
+            return existing
+
+        inst = ApplicationInstallation(
+            application_id=application_id,
+            device_id=device_id,
+            installation_id=installation_id,
+            version=version,
+            platform=platform,
+            status=InstallationStatus.ACTIVE,
+            registered_at=now,
+            last_seen_at=now,
+        )
+        db.add(inst)
+        await db.commit()
+        await db.refresh(inst)
+        return inst
+

@@ -3,7 +3,12 @@ from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Any
 from app.domains.subscriptions.models import OwnerType, SubscriptionStatus
-from app.domains.licensing.models import DeviceStatus, LicenseStatus
+from app.domains.licensing.models import (
+    DeviceStatus,
+    LicenseStatus,
+    AllocationStatus,
+    AllocationReleaseReason,
+)
 
 
 # Subscription Schemas
@@ -116,9 +121,45 @@ class DeviceLicenseSummary(BaseModel):
 
     id: uuid.UUID
     application_id: uuid.UUID
+    current_subscription_id: Optional[uuid.UUID] = None
     status: LicenseStatus
     expires_at: datetime
     issued_at: datetime
+
+
+class DeviceLicenseAllocationSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    device_license_id: uuid.UUID
+    subscription_id: uuid.UUID
+    allocation_status: AllocationStatus
+    allocated_at: datetime
+    released_at: Optional[datetime] = None
+    release_reason: Optional[AllocationReleaseReason] = None
+
+
+class SubscriptionAllocationProvenance(BaseModel):
+    subscription_id: uuid.UUID
+    plan_code: str
+    plan_name: str
+    allocated_seats: int
+    total_seats: int
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class LicensingAdminDashboardResponse(BaseModel):
+    organization_id: uuid.UUID
+    organization_name: str
+    application_code: str
+    total_pooled_capacity: int
+    active_device_licenses_count: int
+    available_seats: int
+    utilization_percentage: float
+    subscriptions: list[SubscriptionAllocationProvenance] = Field(default_factory=list)
+    recent_allocations: list[DeviceLicenseAllocationSummary] = Field(default_factory=list)
+
 
 
 class DeviceResponse(BaseModel):
@@ -143,6 +184,9 @@ class DeviceResponse(BaseModel):
 class LicenseIssueRequest(BaseModel):
     device_id: uuid.UUID
     application_id: Optional[str] = None  # Accepts UUID string or application code (e.g., 'VEX-POS' / 'vexxero-pos')
+    installation_id: Optional[str] = None  # Persistent software installation identifier
+    client_code: Optional[str] = None  # Authorized client code (e.g. 'VEX-POS-WINDOWS')
+
 
 
 class DeviceHeartbeatRequest(BaseModel):
@@ -179,8 +223,11 @@ class LicenseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    device_license_id: Optional[uuid.UUID] = None  # Spec alias for id
     device_id: uuid.UUID
     application_id: uuid.UUID
+    installation_id: Optional[uuid.UUID] = None
+    subscription_id: Optional[uuid.UUID] = None
     organization_id: Optional[uuid.UUID] = None
     organization_name: Optional[str] = None
     product_name: Optional[str] = None
@@ -197,8 +244,15 @@ class LicenseResponse(BaseModel):
     license: Optional[dict] = None
 
     def model_post_init(self, __context: Any) -> None:
+        if self.device_license_id is None:
+            self.device_license_id = self.id
         if self.license is None:
             self.license = {
+                "license_version": 1,
+                "issued_at": int(self.issued_at.timestamp()),
+                "expires_at": int(self.expires_at.timestamp()),
+                "offline_grace_until": int(self.expires_at.timestamp()),
+                "key_id": "iam-ed25519-primary",
                 "signed_payload": self.signed_payload,
                 "signature": self.signature,
             }
@@ -207,6 +261,7 @@ class LicenseResponse(BaseModel):
 class OfflineLicensePayload(BaseModel):
     license_id: str
     device_id: str
+    installation_id: Optional[str] = None
     organization_id: str
     organization_name: Optional[str] = None
     application_code: str
@@ -214,4 +269,5 @@ class OfflineLicensePayload(BaseModel):
     fingerprint: str
     issued_at: int
     expires_at: int
+    offline_grace_until: Optional[int] = None
     grace_period_days: int

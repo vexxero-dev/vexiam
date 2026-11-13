@@ -7,6 +7,10 @@ from app.domains.identity.models import User
 from app.domains.applications.schemas import (
     ApplicationCreateRequest,
     ApplicationResponse,
+    ApplicationClientCreateRequest,
+    ApplicationClientResponse,
+    ApplicationInstallationCreateRequest,
+    ApplicationInstallationResponse,
     PermissionCreateRequest,
     PermissionResponse,
     RoleCreateRequest,
@@ -148,3 +152,59 @@ async def evaluate_access(
     db: AsyncSession = Depends(get_db),
 ):
     return await ApplicationService.evaluate_access(db, req)
+
+
+# Application Clients
+@router.post(
+    "/applications/{app_id}/clients",
+    response_model=ApplicationClientResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register an authorized client for an application (Platform Admin only)",
+)
+async def create_application_client(
+    app_id: uuid.UUID,
+    req: ApplicationClientCreateRequest,
+    _admin: bool = Depends(require_platform_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    return await ApplicationService.create_client(
+        db,
+        application_id=app_id,
+        client_code=req.client_code,
+        client_name=req.client_name,
+        client_type=req.client_type,
+    )
+
+
+@router.get(
+    "/applications/{app_id}/clients",
+    response_model=list[ApplicationClientResponse],
+    summary="List authorized clients for an application",
+)
+async def list_application_clients(
+    app_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    return await ApplicationService.list_clients(db, application_id=app_id)
+
+
+# Application Installations
+@router.post(
+    "/applications/installations",
+    response_model=ApplicationInstallationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register or update an application software installation on a device",
+)
+async def register_application_installation(
+    req: ApplicationInstallationCreateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await ApplicationService.register_installation(
+        db,
+        application_id=req.application_id,
+        device_id=req.device_id,
+        installation_id=req.installation_id,
+        version=req.version,
+        platform=req.platform,
+    )
+

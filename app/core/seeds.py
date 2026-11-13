@@ -1,4 +1,15 @@
-from app.domains.applications.models import Application, ApplicationType, ApplicationRole, Permission, role_permissions
+from app.domains.applications.models import (
+    Application,
+    ApplicationType,
+    PlatformType,
+    ApplicationStatus,
+    ApplicationRole,
+    Permission,
+    ApplicationClient,
+    ClientType,
+    ClientStatus,
+    role_permissions,
+)
 from app.domains.subscriptions.models import Plan
 from sqlalchemy import select, insert
 
@@ -8,24 +19,32 @@ DEFAULT_ECOSYSTEM_APPS = [
         "name": "Vexxero Point of Sale",
         "description": "High-throughput retail and café POS with 100% offline-first execution, ESC/POS hardware print routing, and blind cash drawers.",
         "type": ApplicationType.LOCAL_HYBRID,
+        "platform_type": PlatformType.WINDOWS_DESKTOP,
+        "current_version": "1.0.0",
     },
     {
         "code": "VEX-ERP",
         "name": "Vexxero Enterprise ERP",
         "description": "Centralized business management, multi-warehouse stock replenishment, procurement workflows, and consolidated financials.",
         "type": ApplicationType.WEB,
+        "platform_type": PlatformType.WEB,
+        "current_version": "1.0.0",
     },
     {
         "code": "VEX-PMS",
         "name": "Vexxero Property Management System",
         "description": "Hotel, resort, and guest management system with room inventory and booking operations.",
         "type": ApplicationType.WEB,
+        "platform_type": PlatformType.WEB,
+        "current_version": "1.0.0",
     },
     {
         "code": "VEX-FINCLOUD",
         "name": "Vexxero FinCloud",
         "description": "Financial analytics, ledger reconciliation, automated VAT/tax reporting, and banking integration.",
         "type": ApplicationType.WEB,
+        "platform_type": PlatformType.WEB,
+        "current_version": "1.0.0",
     },
 ]
 
@@ -118,13 +137,38 @@ async def seed_vexxero_defaults(session):
                 name=app_data["name"],
                 description=app_data["description"],
                 type=app_data["type"],
+                platform_type=app_data.get("platform_type", PlatformType.WINDOWS_DESKTOP),
+                status=ApplicationStatus.ACTIVE,
+                current_version=app_data.get("current_version", "1.0.0"),
                 is_active=True,
             )
             session.add(app)
             await session.flush()
             created_apps[app_data["code"]] = app.id
         else:
+            if hasattr(existing, "platform_type") and not existing.platform_type:
+                existing.platform_type = app_data.get("platform_type", PlatformType.WINDOWS_DESKTOP)
+            if hasattr(existing, "status") and not existing.status:
+                existing.status = ApplicationStatus.ACTIVE
+            if hasattr(existing, "current_version") and not existing.current_version:
+                existing.current_version = app_data.get("current_version", "1.0.0")
             created_apps[app_data["code"]] = existing.id
+
+    # 1B. Seed default application clients
+    pos_app_id = created_apps.get("VEX-POS")
+    if pos_app_id:
+        stmt_client = select(ApplicationClient).where(ApplicationClient.client_code == "VEX-POS-WINDOWS")
+        res_client = await session.execute(stmt_client)
+        if not res_client.scalar_one_or_none():
+            client_entry = ApplicationClient(
+                application_id=pos_app_id,
+                client_code="VEX-POS-WINDOWS",
+                client_name="VEX POS Windows Desktop Client",
+                client_type=ClientType.DESKTOP,
+                status=ClientStatus.ACTIVE,
+            )
+            session.add(client_entry)
+            await session.flush()
 
     # 2. Seed default plans linked to applications
     for plan_data in DEFAULT_PLANS:
