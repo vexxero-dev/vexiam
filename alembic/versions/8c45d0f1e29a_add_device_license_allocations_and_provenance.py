@@ -63,12 +63,13 @@ def upgrade() -> None:
     op.create_index('ix_application_installations_device_id', 'application_installations', ['device_id'])
     op.create_index('ix_application_installations_installation_id', 'application_installations', ['installation_id'])
 
-    # 4. Add current_subscription_id, installation_id, organization_id, revoked_at, updated_at to device_licenses
+    # 4. Add current_subscription_id, installation_id, organization_id, revoked_at, created_at, updated_at to device_licenses
     with op.batch_alter_table('device_licenses', schema=None) as batch_op:
         batch_op.add_column(sa.Column('current_subscription_id', sa.UUID(), nullable=True))
         batch_op.add_column(sa.Column('installation_id', sa.UUID(), nullable=True))
         batch_op.add_column(sa.Column('organization_id', sa.UUID(), nullable=True))
         batch_op.add_column(sa.Column('revoked_at', sa.DateTime(timezone=True), nullable=True))
+        batch_op.add_column(sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False))
         batch_op.add_column(sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False))
         batch_op.create_foreign_key(
             'fk_device_license_subscription',
@@ -129,6 +130,7 @@ def downgrade() -> None:
         batch_op.drop_constraint('fk_device_license_installation', type_='foreignkey')
         batch_op.drop_constraint('fk_device_license_subscription', type_='foreignkey')
         batch_op.drop_column('updated_at')
+        batch_op.drop_column('created_at')
         batch_op.drop_column('revoked_at')
         batch_op.drop_column('organization_id')
         batch_op.drop_column('installation_id')
