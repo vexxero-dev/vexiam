@@ -1415,6 +1415,8 @@ export default function VexIAMApp() {
                       <div className="space-y-4 mb-6">
                         {subscriptions.map((sub) => {
                           const appId = sub.plan?.application_id;
+                          const appObj = applications.find((a) => a.id === appId);
+                          const appCode = appObj?.code || "VEX-POS";
                           const appAssignments = assignments.filter(
                             (a) => a.application_id === appId && a.status === "ACTIVE"
                           );
@@ -1739,7 +1741,7 @@ export default function VexIAMApp() {
                                                   </button>
                                                 )}
                                                 <button
-                                                  onClick={() => handleActivatePosSync(dev.id, sub.plan?.code || "VEX-POS")}
+                                                  onClick={() => handleActivatePosSync(dev.id, appCode)}
                                                   disabled={syncActivatingDeviceId === dev.id}
                                                   title="Activate POS Cloud Synchronization ticket via VEX IAM authority"
                                                   className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"

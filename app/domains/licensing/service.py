@@ -1589,14 +1589,26 @@ class CommercialAndLicensingService:
             await db.delete(chal)
 
         # 4. Entitlement & Subscription Check
-        app_stmt = select(Application).where(Application.code == req.application_code)
+        code_norm = (req.application_code or "").strip().upper().replace("VEXXERO", "VEX")
+        app_stmt = select(Application).where(func.upper(Application.code) == code_norm)
         app_res = await db.execute(app_stmt)
         app_obj = app_res.scalar_one_or_none()
         if not app_obj:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Application '{req.application_code}' not found.",
+            # Fallback: Check if the provided code corresponds to a Plan code (e.g., POS-ENTERPRISE, POS-GROWTH, POS-STARTER)
+            plan_stmt = (
+                select(Plan)
+                .where(func.upper(Plan.code) == code_norm)
+                .options(selectinload(Plan.application))
             )
+            plan_res = await db.execute(plan_stmt)
+            plan_obj = plan_res.scalar_one_or_none()
+            if plan_obj and plan_obj.application:
+                app_obj = plan_obj.application
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Application '{req.application_code}' not found.",
+                )
 
         now_utc = datetime.now(timezone.utc)
         sub_stmt = (
@@ -1636,7 +1648,7 @@ class CommercialAndLicensingService:
             device_id=str(device.id),
             terminal_identifier=device.fingerprint,
             public_key=device.public_key,
-            application_code=req.application_code,
+            application_code=app_obj.code,
             issued_at=int(now_ts.timestamp()),
             expires_at=int(expires_ts.timestamp()),
             sync_endpoint=settings.POS_CLOUD_SYNC_URL,
