@@ -14,6 +14,10 @@ from app.domains.licensing.schemas import (
     SubscriptionCreateRequest,
     SubscriptionResponse,
     DeviceChallengeResponse,
+    TimeRevalidationChallengeRequest,
+    TimeRevalidationChallengeResponse,
+    TimeRevalidationVerifyRequest,
+    TimeRevalidationSignedResponse,
     DeviceRegisterRequest,
     DeviceReassignRequest,
     DeviceReassignResponse,
@@ -83,6 +87,45 @@ async def create_device_challenge(
     db: AsyncSession = Depends(get_db),
 ):
     return await CommercialAndLicensingService.create_device_challenge(db)
+
+
+@router.post(
+    "/devices/time-challenge",
+    response_model=TimeRevalidationChallengeResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Issue a one-time cryptographic challenge nonce for device time revalidation",
+)
+async def create_time_challenge(
+    req: TimeRevalidationChallengeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    chal = await CommercialAndLicensingService.create_time_revalidation_challenge(
+        db, device_id=req.device_id, fingerprint=req.fingerprint, terminal_id=req.terminal_id
+    )
+    return TimeRevalidationChallengeResponse(
+        challenge_id=chal.challenge_id,
+        nonce=chal.nonce,
+        expires_at=chal.expires_at,
+    )
+
+
+@router.post(
+    "/devices/time-revalidate",
+    response_model=TimeRevalidationSignedResponse,
+    summary="Verify device proof-of-possession over challenge and issue authoritative IAM-signed timestamp",
+)
+async def verify_time_challenge(
+    req: TimeRevalidationVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.verify_time_revalidation_challenge(
+        db,
+        challenge_id=req.challenge_id,
+        device_id=req.device_id,
+        fingerprint=req.fingerprint,
+        terminal_id=req.terminal_id,
+        signature_b64=req.signature_b64,
+    )
 
 
 # Plans & Subscriptions

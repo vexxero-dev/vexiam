@@ -1353,3 +1353,133 @@ class CommercialAndLicensingService:
             raise ValueError("License has expired and offline grace period has lapsed. Please connect to internet to renew.")
 
         return data
+
+    @staticmethod
+    async def create_time_revalidation_challenge(
+        db: AsyncSession, device_id: uuid.UUID, fingerprint: str, terminal_id: str
+    ) -> DeviceChallenge:
+        """
+        Creates a single-use, cryptographically secure challenge nonce bound to an authenticated device registration.
+        Expires in 5 minutes (300 seconds).
+        """
+        # Validate device existence and hardware binding
+        stmt = select(Device).where(Device.id == device_id)
+        res = await db.execute(stmt)
+        dev = res.scalar_one_or_none()
+        if not dev:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+        if dev.fingerprint != fingerprint:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Hardware fingerprint mismatch.")
+        if dev.status == DeviceStatus.REVOKED:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is revoked.")
+
+        challenge = DeviceChallenge(
+            challenge_id=f"TIME-CHAL-{uuid.uuid4().hex}",
+            nonce=secrets.token_hex(32),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        db.add(challenge)
+        await db.commit()
+        await db.refresh(challenge)
+        return challenge
+
+    @staticmethod
+    async def verify_time_revalidation_challenge(
+        db: AsyncSession,
+        challenge_id: str,
+        device_id: uuid.UUID,
+        fingerprint: str,
+        terminal_id: str,
+        signature_b64: str,
+    ) -> dict:
+        """
+        Verifies client proof-of-possession over challenge nonce and returns authoritative IAM-signed timestamp.
+        Binds tenant, organization, store, terminal, device, license, nonce, timestamp, purpose, and key ID.
+        """
+        stmt = select(Device).where(Device.id == device_id)
+        res = await db.execute(stmt)
+        dev = res.scalar_one_or_none()
+        if not dev:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+        if dev.fingerprint != fingerprint:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Hardware fingerprint mismatch.")
+        if dev.status == DeviceStatus.REVOKED:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device is revoked.")
+
+        # Query and validate challenge
+        stmt_chal = select(DeviceChallenge).where(DeviceChallenge.challenge_id == challenge_id)
+        res_chal = await db.execute(stmt_chal)
+        chal = res_chal.scalar_one_or_none()
+        if not chal:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid challenge ID.")
+        if chal.consumed_at is not None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge already consumed.")
+        now_utc = datetime.now(timezone.utc)
+        chal_expires = chal.expires_at
+        if chal_expires.tzinfo is None:
+            chal_expires = chal_expires.replace(tzinfo=timezone.utc)
+        if now_utc > chal_expires:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge expired.")
+
+        # Verify device Ed25519 signature over client proof payload
+        try:
+            raw_pub = base64.b64decode(dev.public_key)
+            term_pub = ed25519.Ed25519PublicKey.from_public_bytes(raw_pub)
+            client_proof = {
+                "challenge_id": chal.challenge_id,
+                "device_id": str(dev.id),
+                "fingerprint": dev.fingerprint,
+                "nonce": chal.nonce,
+                "purpose": "TIME_REVALIDATION_CHALLENGE",
+                "terminal_id": terminal_id,
+            }
+            canonical_proof = rfc8785.dumps(client_proof)
+            sig_bytes = base64.b64decode(signature_b64)
+            term_pub.verify(sig_bytes, canonical_proof)
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Device challenge signature invalid: {exc}")
+
+        # Mark challenge consumed (one-time consumption)
+        chal.consumed_at = now_utc
+
+        # Resolve active license context
+        stmt_lic = select(DeviceLicense).where(
+            and_(
+                DeviceLicense.device_id == dev.id,
+                DeviceLicense.status == LicenseStatus.ACTIVE,
+            )
+        ).order_by(DeviceLicense.issued_at.desc())
+        res_lic = await db.execute(stmt_lic)
+        active_lic = res_lic.scalars().first()
+        license_id_str = str(active_lic.id) if active_lic else None
+
+        from app.core.security import DEFAULT_KEY_ID
+
+        # Produce authoritative IAM signed response
+        auth_payload = {
+            "device_id": str(dev.id),
+            "fingerprint": dev.fingerprint,
+            "license_id": license_id_str,
+            "nonce": chal.nonce,
+            "organization_id": str(dev.organization_id),
+            "purpose": "TIME_REVALIDATION_RESPONSE",
+            "signing_key_id": DEFAULT_KEY_ID,
+            "store_id": str(dev.location_id) if dev.location_id else None,
+            "tenant_id": str(dev.organization_id),
+            "terminal_id": terminal_id,
+            "timestamp": int(now_utc.timestamp()),
+        }
+
+        canonical_auth = rfc8785.dumps(auth_payload)
+        sig_iam = _private_key.sign(canonical_auth)
+        sig_iam_b64 = base64.b64encode(sig_iam).decode("utf-8")
+
+        await db.commit()
+
+        return {
+            "signed_payload": auth_payload,
+            "signature_b64": sig_iam_b64,
+            "signing_key_id": DEFAULT_KEY_ID,
+            "status": "HEALTHY",
+            "message": "Authoritative time revalidation issued successfully.",
+        }

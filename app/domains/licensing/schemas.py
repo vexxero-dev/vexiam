@@ -76,6 +76,34 @@ class DeviceChallengeResponse(BaseModel):
     expires_at: datetime
 
 
+class TimeRevalidationChallengeRequest(BaseModel):
+    device_id: uuid.UUID
+    fingerprint: str
+    terminal_id: str
+
+
+class TimeRevalidationChallengeResponse(BaseModel):
+    challenge_id: str
+    nonce: str
+    expires_at: datetime
+
+
+class TimeRevalidationVerifyRequest(BaseModel):
+    challenge_id: str
+    device_id: uuid.UUID
+    fingerprint: str
+    terminal_id: str
+    signature_b64: str = Field(..., description="Device signature over canonical challenge verification payload")
+
+
+class TimeRevalidationSignedResponse(BaseModel):
+    signed_payload: dict
+    signature_b64: str
+    signing_key_id: str
+    status: str
+    message: str
+
+
 class HeartbeatPayload(BaseModel):
     device_id: str
     fingerprint: str
