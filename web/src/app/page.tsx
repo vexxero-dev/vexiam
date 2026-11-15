@@ -30,6 +30,7 @@ import {
   Store,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
 } from "lucide-react";
 
 interface UserProfile {
@@ -234,6 +235,14 @@ export default function VexIAMApp() {
   const [newDeviceFingerprint, setNewDeviceFingerprint] = useState("");
   const [newDevicePublicKey, setNewDevicePublicKey] = useState("");
   const [activatedLicense, setActivatedLicense] = useState<string | null>(null);
+  const [activatedSyncTicket, setActivatedSyncTicket] = useState<{
+    device_id: string;
+    sync_endpoint: string;
+    signed_ticket: string;
+    signature_b64: string;
+    expires_at: string;
+  } | null>(null);
+  const [syncActivatingDeviceId, setSyncActivatingDeviceId] = useState<string | null>(null);
 
   // Copied State
   const [copiedOrgId, setCopiedOrgId] = useState<string | null>(null);
@@ -586,6 +595,24 @@ export default function VexIAMApp() {
       }
     } catch (err: any) {
       alert(err.response?.data?.detail || "Failed to activate license. Check device seat quota.");
+    }
+  };
+
+  const handleActivatePosSync = async (deviceId: string, appCode: string = "VEX-POS") => {
+    setSyncActivatingDeviceId(deviceId);
+    try {
+      const res = await api.post(`/devices/${deviceId}/sync-activate`, {
+        application_code: appCode,
+      });
+      setActivatedSyncTicket(res.data);
+      alert("POS Cloud Sync successfully activated via VEX IAM authority!");
+      if (selectedOrg) {
+        loadOrgDevices(selectedOrg.id);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to activate POS cloud sync. Ensure device is assigned to an active location and has an active subscription.");
+    } finally {
+      setSyncActivatingDeviceId(null);
     }
   };
 
@@ -1693,7 +1720,7 @@ export default function VexIAMApp() {
                                                   </select>
                                                 </div>
                                               </div>
-                                              <div className="flex items-center gap-2">
+                                              <div className="flex items-center gap-2 flex-wrap">
                                                 {appId ? (
                                                   <button
                                                     onClick={() => handleIssueLicense(dev.id, appId)}
@@ -1711,6 +1738,15 @@ export default function VexIAMApp() {
                                                     <span>{hasActiveLicense ? "Renew Offline License" : "Issue Offline License"}</span>
                                                   </button>
                                                 )}
+                                                <button
+                                                  onClick={() => handleActivatePosSync(dev.id, sub.plan?.code || "VEX-POS")}
+                                                  disabled={syncActivatingDeviceId === dev.id}
+                                                  title="Activate POS Cloud Synchronization ticket via VEX IAM authority"
+                                                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                                                >
+                                                  <RefreshCw className={`w-3.5 h-3.5 ${syncActivatingDeviceId === dev.id ? "animate-spin" : ""}`} />
+                                                  <span>{syncActivatingDeviceId === dev.id ? "Activating..." : "Activate POS Sync"}</span>
+                                                </button>
                                                 <button
                                                   onClick={() => handleDeleteDevice(dev.id, dev.name)}
                                                   title="Delete registered device"
@@ -1741,6 +1777,28 @@ export default function VexIAMApp() {
                                           rows={3}
                                           value={activatedLicense}
                                           className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono text-[11px] text-cyan-200 select-all"
+                                        />
+                                      </div>
+                                    )}
+
+                                    {/* Activated POS Sync Ticket Display */}
+                                    {activatedSyncTicket && (
+                                      <div className="mt-3 mb-2 p-4 bg-indigo-950/40 border border-indigo-800/50 rounded-xl">
+                                        <p className="text-xs font-bold text-indigo-300 mb-1 flex items-center gap-1.5">
+                                          <CheckCircle2 className="w-4 h-4 text-indigo-400" />
+                                          <span>Activated POS Cloud Synchronization Ticket:</span>
+                                        </p>
+                                        <p className="text-[11px] text-slate-300 mb-1">
+                                          Sync Gateway: <strong className="font-mono text-indigo-300">{activatedSyncTicket.sync_endpoint}</strong>
+                                        </p>
+                                        <p className="text-[10px] text-slate-400 mb-2">
+                                          Expires: {new Date(activatedSyncTicket.expires_at).toLocaleString()}
+                                        </p>
+                                        <textarea
+                                          readOnly
+                                          rows={3}
+                                          value={activatedSyncTicket.signed_ticket}
+                                          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono text-[11px] text-indigo-200 select-all"
                                         />
                                       </div>
                                     )}
