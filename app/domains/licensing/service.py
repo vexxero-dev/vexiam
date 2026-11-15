@@ -1483,3 +1483,186 @@ class CommercialAndLicensingService:
             "status": "HEALTHY",
             "message": "Authoritative time revalidation issued successfully.",
         }
+
+    @staticmethod
+    async def activate_device_sync(
+        db: AsyncSession,
+        device_id: uuid.UUID,
+        req: "PosSyncActivationRequest",
+    ) -> "PosSyncActivationResponse":
+        """
+        Activates POS cloud sync for a registered device via VEX IAM.
+        Verifies:
+        1. Device is ACTIVE and assigned to a location/store.
+        2. Organization has an active subscription with pos.sync capability.
+        3. Optional proof-of-possession Ed25519 signature over challenge nonce.
+        Issues an Ed25519-signed sync activation ticket for presentation to VEX POS Cloud.
+        """
+        from app.domains.licensing.schemas import (
+            PosSyncActivationRequest,
+            PosSyncActivationResponse,
+            PosSyncTicketPayload,
+        )
+        from app.core.security import DEFAULT_KEY_ID
+
+        # 1. Fetch device
+        stmt = (
+            select(Device)
+            .options(selectinload(Device.location))
+            .where(Device.id == device_id)
+        )
+        res = await db.execute(stmt)
+        device = res.scalar_one_or_none()
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Device '{device_id}' not found.",
+            )
+
+        if device.status != DeviceStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Device is not active (status: {device.status.value}). Sync activation denied.",
+            )
+
+        # 2. Check location assignment
+        if not device.location_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Device must be assigned to a location/store before activating cloud sync.",
+            )
+
+        if device.location and device.location.status != LocationStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Assigned location is inactive or archived. Sync activation denied.",
+            )
+
+        # 3. Optional challenge verification for cryptographic proof-of-possession
+        if req.challenge_id:
+            if not req.signature_b64:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="signature_b64 is required when challenge_id is provided.",
+                )
+            chal_stmt = select(DeviceChallenge).where(
+                DeviceChallenge.challenge_id == req.challenge_id
+            )
+            chal_res = await db.execute(chal_stmt)
+            chal = chal_res.scalar_one_or_none()
+            if not chal:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid or expired challenge ID.",
+                )
+            now_utc = datetime.now(timezone.utc)
+            chal_expires = chal.expires_at
+            if chal_expires.tzinfo is None:
+                chal_expires = chal_expires.replace(tzinfo=timezone.utc)
+            if chal_expires < now_utc:
+                await db.delete(chal)
+                await db.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cryptographic challenge has expired.",
+                )
+
+            challenge_proof_payload = {
+                "challenge_id": chal.challenge_id,
+                "device_id": str(device.id),
+                "fingerprint": device.fingerprint,
+                "nonce": chal.nonce,
+                "purpose": "POS_SYNC_ACTIVATION",
+            }
+            canonical_proof = rfc8785.dumps(challenge_proof_payload)
+
+            try:
+                device_pub_bytes = base64.b64decode(device.public_key)
+                term_pub = ed25519.Ed25519PublicKey.from_public_bytes(device_pub_bytes)
+                sig_bytes = base64.b64decode(req.signature_b64)
+                term_pub.verify(sig_bytes, canonical_proof)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Device proof-of-possession signature verification failed: {exc}",
+                )
+            await db.delete(chal)
+
+        # 4. Entitlement & Subscription Check
+        app_stmt = select(Application).where(Application.code == req.application_code)
+        app_res = await db.execute(app_stmt)
+        app_obj = app_res.scalar_one_or_none()
+        if not app_obj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Application '{req.application_code}' not found.",
+            )
+
+        now_utc = datetime.now(timezone.utc)
+        sub_stmt = (
+            select(Subscription)
+            .join(Plan, Subscription.plan_id == Plan.id)
+            .where(
+                and_(
+                    Subscription.organization_id == device.organization_id,
+                    Plan.application_id == app_obj.id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+            )
+        )
+        sub_res = await db.execute(sub_stmt)
+        active_subs = sub_res.scalars().all()
+        valid_subs = [
+            s for s in active_subs
+            if s.expires_at is None or (
+                (s.expires_at if s.expires_at.tzinfo is not None else s.expires_at.replace(tzinfo=timezone.utc)) > now_utc
+            )
+        ]
+        if not valid_subs:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization does not hold active subscription for POS cloud synchronization.",
+            )
+
+        # 5. Issue Ed25519-Signed Sync Activation Ticket
+        now_ts = datetime.now(timezone.utc)
+        expires_ts = now_ts + timedelta(hours=settings.POS_CLOUD_SYNC_TICKET_EXPIRE_HOURS)
+
+        ticket_id = str(uuid.uuid4())
+        ticket_payload = PosSyncTicketPayload(
+            ticket_id=ticket_id,
+            organization_id=str(device.organization_id),
+            location_id=str(device.location_id),
+            device_id=str(device.id),
+            terminal_identifier=device.fingerprint,
+            public_key=device.public_key,
+            application_code=req.application_code,
+            issued_at=int(now_ts.timestamp()),
+            expires_at=int(expires_ts.timestamp()),
+            sync_endpoint=settings.POS_CLOUD_SYNC_URL,
+            signing_key_id=DEFAULT_KEY_ID,
+        )
+
+        canonical_ticket_bytes = rfc8785.dumps(ticket_payload.model_dump())
+        signed_ticket_json = canonical_ticket_bytes.decode("utf-8")
+        iam_signature = _private_key.sign(canonical_ticket_bytes)
+        signature_b64 = base64.b64encode(iam_signature).decode("utf-8")
+
+        # Update device heartbeat and status
+        device.last_heartbeat_at = now_ts
+        await db.commit()
+
+        return PosSyncActivationResponse(
+            device_id=device.id,
+            organization_id=device.organization_id,
+            location_id=device.location_id,
+            status=device.status,
+            sync_endpoint=settings.POS_CLOUD_SYNC_URL,
+            ticket_payload=ticket_payload,
+            signed_ticket=signed_ticket_json,
+            signature_b64=signature_b64,
+            signing_key_id=DEFAULT_KEY_ID,
+            expires_at=expires_ts,
+            message="POS cloud sync successfully activated via VEX IAM authority.",
+        )
+

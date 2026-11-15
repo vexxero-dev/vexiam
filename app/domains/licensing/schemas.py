@@ -239,11 +239,47 @@ class DeviceInternalVerificationResponse(BaseModel):
 
     device_id: uuid.UUID
     organization_id: uuid.UUID
+    location_id: Optional[uuid.UUID] = None
     fingerprint: str
     name: str
     public_key: str
     status: DeviceStatus
     is_valid: bool
+    sync_entitled: bool = True
+
+
+class PosSyncActivationRequest(BaseModel):
+    challenge_id: Optional[str] = Field(None, description="Cryptographic challenge ID if proof-of-possession is required")
+    signature_b64: Optional[str] = Field(None, description="Ed25519 signature of client challenge or activation payload")
+    application_code: str = Field("VEX-POS", description="Target application code to activate sync for")
+
+
+class PosSyncTicketPayload(BaseModel):
+    ticket_id: str
+    organization_id: str
+    location_id: Optional[str] = None
+    device_id: str
+    terminal_identifier: str
+    public_key: str
+    application_code: str
+    issued_at: int
+    expires_at: int
+    sync_endpoint: str
+    signing_key_id: str
+
+
+class PosSyncActivationResponse(BaseModel):
+    device_id: uuid.UUID
+    organization_id: uuid.UUID
+    location_id: Optional[uuid.UUID] = None
+    status: DeviceStatus
+    sync_endpoint: str
+    ticket_payload: PosSyncTicketPayload
+    signed_ticket: str  # RFC 8785 canonical JSON string
+    signature_b64: str  # IAM Ed25519 signature
+    signing_key_id: str
+    expires_at: datetime
+    message: str
 
 
 

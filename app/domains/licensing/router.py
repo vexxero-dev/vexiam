@@ -30,6 +30,8 @@ from app.domains.licensing.schemas import (
     LicenseResponse,
     EntitlementsResponse,
     LicensingAdminDashboardResponse,
+    PosSyncActivationRequest,
+    PosSyncActivationResponse,
 )
 from app.domains.licensing.service import CommercialAndLicensingService
 
@@ -384,10 +386,33 @@ async def internal_verify_device(
     return DeviceInternalVerificationResponse(
         device_id=device.id,
         organization_id=device.organization_id,
+        location_id=device.location_id,
         fingerprint=device.fingerprint,
         name=device.name,
         public_key=device.public_key,
         status=device.status,
         is_valid=(device.status == DeviceStatus.ACTIVE),
+        sync_entitled=True,
+    )
+
+
+@router.post(
+    "/devices/{device_id}/sync-activate",
+    response_model=PosSyncActivationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Activate POS cloud synchronization for a registered terminal device",
+)
+async def activate_device_sync(
+    device_id: uuid.UUID,
+    req: PosSyncActivationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Authoritative IAM activation step for POS terminals.
+    Ensures terminal is registered, active, location-assigned, and holds an active subscription
+    before generating an Ed25519-signed sync ticket with the cloud sync gateway endpoint.
+    """
+    return await CommercialAndLicensingService.activate_device_sync(
+        db, device_id, req
     )
 
