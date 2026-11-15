@@ -29,6 +29,7 @@ import {
   Globe,
   Store,
   ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 interface UserProfile {
@@ -218,6 +219,7 @@ export default function VexIAMApp() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [subscribingPlanId, setSubscribingPlanId] = useState<string | null>(null);
+  const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
 
   // Application Assignments (Seats)
   const [assignments, setAssignments] = useState<ApplicationAssignment[]>([]);
@@ -1383,7 +1385,7 @@ export default function VexIAMApp() {
                         <p className="text-xs text-slate-400 mb-4">No active subscriptions for this organization.</p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      <div className="space-y-4 mb-6">
                         {subscriptions.map((sub) => {
                           const appId = sub.plan?.application_id;
                           const appAssignments = assignments.filter(
@@ -1392,6 +1394,14 @@ export default function VexIAMApp() {
                           const usedSeats = appAssignments.length;
                           const totalSeats = sub.plan?.user_seats || 0;
                           const isSeatFull = totalSeats > 0 && usedSeats >= totalSeats;
+
+                          // Devices associated with this subscription or application
+                          const subscriptionDevices = devices.filter((dev) =>
+                            dev.licenses?.some(
+                              (lic) =>
+                                (!appId || lic.application_id === appId)
+                            )
+                          );
 
                           // Terminal quota tracking across organization devices
                           const appActiveTerminals = devices.filter((dev) =>
@@ -1405,160 +1415,376 @@ export default function VexIAMApp() {
                           const totalTerminals = sub.plan?.device_seats || 0;
                           const isTerminalQuotaReached =
                             totalTerminals > 0 && usedTerminals >= totalTerminals;
+                          const isExpanded = expandedSubId === sub.id;
 
                           return (
                             <div
                               key={sub.id}
-                              className="p-5 bg-slate-800/50 border border-slate-700/60 rounded-xl flex flex-col justify-between"
+                              className="bg-slate-800/50 border border-slate-700/60 rounded-xl overflow-hidden transition-all duration-200"
                             >
-                              <div>
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="text-xs font-mono font-bold text-indigo-400">
-                                    {sub.plan?.code}
-                                  </span>
-                                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
-                                    {sub.status}
-                                  </span>
-                                </div>
-                                <h4 className="text-sm font-semibold text-white mb-1">{sub.plan?.name}</h4>
-                                <p className="text-xs text-slate-400 mb-3">{sub.plan?.description}</p>
-
-                                {/* User Seat Allocation & Quota Bar */}
-                                <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 mb-3">
-                                  <div className="flex items-center justify-between text-xs mb-1.5">
-                                    <span className="text-slate-300 font-medium">Assigned User Seats:</span>
-                                    <span
-                                      className={`font-mono font-bold ${
-                                        isSeatFull ? "text-amber-400" : "text-indigo-400"
-                                      }`}
-                                    >
-                                      {usedSeats} / {totalSeats} seats used
+                              <div
+                                onClick={() => setExpandedSubId(isExpanded ? null : sub.id)}
+                                className="p-5 cursor-pointer hover:bg-slate-800/80 transition flex flex-col md:flex-row md:items-center justify-between gap-4 select-none"
+                              >
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-mono font-bold text-indigo-400">
+                                      {sub.plan?.code}
+                                    </span>
+                                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
+                                      {sub.status}
+                                    </span>
+                                    <span className="text-[11px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                      <Laptop className="w-3 h-3 text-cyan-400" />
+                                      <span>{appActiveTerminals.length} / {totalTerminals} Terminals</span>
                                     </span>
                                   </div>
-                                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full transition-all ${
-                                        isSeatFull ? "bg-amber-400" : "bg-indigo-500"
-                                      }`}
-                                      style={{
-                                        width: `${Math.min(
-                                          100,
-                                          totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0
-                                        )}%`,
-                                      }}
-                                    />
-                                  </div>
-                                  <div className="flex items-center justify-end text-[11px] text-slate-400 mt-2">
-                                    {appId && (
-                                      <button
-                                        onClick={() =>
-                                          openAssignModal(appId, sub.plan?.name || "Application")
-                                        }
-                                        disabled={isSeatFull}
-                                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 disabled:text-slate-500 transition"
-                                      >
-                                        <UserPlus className="w-3.5 h-3.5" />
-                                        <span>{isSeatFull ? "Seats Full" : "Assign User Seat"}</span>
-                                      </button>
+                                  <h4 className="text-base font-semibold text-white">{sub.plan?.name}</h4>
+                                  <p className="text-xs text-slate-400">{sub.plan?.description}</p>
+                                </div>
+
+                                <div className="flex items-center gap-3 self-end md:self-auto">
+                                  <span className="text-xs text-indigo-400 font-medium hidden sm:inline">
+                                    {isExpanded ? "Hide Hardware Terminals & Offline Licenses" : "View Hardware Terminals & Offline Licenses"}
+                                  </span>
+                                  <div className="p-1.5 rounded-lg bg-slate-700/50 text-slate-300">
+                                    {isExpanded ? (
+                                      <ChevronUp className="w-4 h-4 text-indigo-400" />
+                                    ) : (
+                                      <ChevronDown className="w-4 h-4 text-indigo-400" />
                                     )}
                                   </div>
-                                </div>
-
-                                {/* Terminal Seat Quota Bar */}
-                                <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 mb-4">
-                                  <div className="flex items-center justify-between text-xs mb-1.5">
-                                    <span className="text-slate-300 font-medium flex items-center gap-1">
-                                      <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                                      <span>Licensed Terminals:</span>
-                                    </span>
-                                    <span
-                                      className={`font-mono font-bold ${
-                                        isTerminalQuotaReached ? "text-amber-400" : "text-cyan-400"
-                                      }`}
-                                    >
-                                      {usedTerminals} / {totalTerminals} terminals active
-                                    </span>
-                                  </div>
-                                  <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full transition-all ${
-                                        isTerminalQuotaReached ? "bg-amber-400" : "bg-cyan-500"
-                                      }`}
-                                      style={{
-                                        width: `${Math.min(
-                                          100,
-                                          totalTerminals > 0 ? (usedTerminals / totalTerminals) * 100 : 0
-                                        )}%`,
-                                      }}
-                                    />
-                                  </div>
-                                  <div className="text-[11px] text-slate-400 mt-2 flex justify-between items-center">
-                                    <span>
-                                      Capacity: <strong>{totalTerminals} devices limit</strong>
-                                    </span>
-                                    {isTerminalQuotaReached && (
-                                      <span className="text-[10px] text-amber-400 font-semibold bg-amber-400/10 px-2 py-0.5 rounded">
-                                        Quota Reached
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Assigned Users List */}
-                                <div>
-                                  <h5 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                                    Assigned Users ({appAssignments.length})
-                                  </h5>
-                                  {appAssignments.length === 0 ? (
-                                    <p className="text-xs text-slate-500 italic py-1.5">
-                                      No members assigned yet. Users in the Active User Pool cannot access this app until assigned a seat here.
-                                    </p>
-                                  ) : (
-                                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                                      {appAssignments.map((assign) => {
-                                        const userName = assign.user?.profile
-                                          ? `${assign.user.profile.first_name} ${assign.user.profile.last_name}`
-                                          : assign.user?.email || "Unknown User";
-                                        const userEmail = assign.user?.email;
-                                        return (
-                                          <div
-                                            key={assign.id}
-                                            className="flex items-center justify-between p-2 bg-slate-900/40 border border-slate-800/80 rounded-lg text-xs"
-                                          >
-                                            <div className="min-w-0 pr-2">
-                                              <div className="font-medium text-white truncate">
-                                                {userName}
-                                              </div>
-                                              <div className="text-[10px] text-slate-400 truncate">
-                                                {userEmail}
-                                              </div>
-                                              <div className="flex gap-1 mt-0.5">
-                                                {assign.roles?.map((r) => (
-                                                  <span
-                                                    key={r.id}
-                                                    className="text-[9px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.2 rounded"
-                                                  >
-                                                    {r.name || r.code}
-                                                  </span>
-                                                ))}
-                                              </div>
-                                            </div>
-                                            <button
-                                              onClick={() =>
-                                                handleRevokeAssignment(assign.id, userName)
-                                              }
-                                              title="Revoke seat access"
-                                              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition"
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
                                 </div>
                               </div>
+
+                              {/* Collapsible Content: Seats, Hardware Terminals & Offline Licenses */}
+                              {isExpanded && (
+                                <div className="p-5 border-t border-slate-700/50 bg-slate-900/40 space-y-6">
+                                  {/* Quotas Overview */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* User Seat Allocation & Quota Bar */}
+                                    <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800">
+                                      <div className="flex items-center justify-between text-xs mb-1.5">
+                                        <span className="text-slate-300 font-medium">Assigned User Seats:</span>
+                                        <span
+                                          className={`font-mono font-bold ${
+                                            isSeatFull ? "text-amber-400" : "text-indigo-400"
+                                          }`}
+                                        >
+                                          {usedSeats} / {totalSeats} seats used
+                                        </span>
+                                      </div>
+                                      <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                        <div
+                                          className={`h-full transition-all ${
+                                            isSeatFull ? "bg-amber-400" : "bg-indigo-500"
+                                          }`}
+                                          style={{
+                                            width: `${Math.min(
+                                              100,
+                                              totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0
+                                            )}%`,
+                                          }}
+                                        />
+                                      </div>
+                                      <div className="flex items-center justify-end text-[11px] text-slate-400 mt-2">
+                                        {appId && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openAssignModal(appId, sub.plan?.name || "Application");
+                                            }}
+                                            disabled={isSeatFull}
+                                            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 disabled:text-slate-500 transition"
+                                          >
+                                            <UserPlus className="w-3.5 h-3.5" />
+                                            <span>{isSeatFull ? "Seats Full" : "Assign User Seat"}</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Terminal Seat Quota Bar */}
+                                    <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800">
+                                      <div className="flex items-center justify-between text-xs mb-1.5">
+                                        <span className="text-slate-300 font-medium flex items-center gap-1">
+                                          <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+                                          <span>Licensed Terminals:</span>
+                                        </span>
+                                        <span
+                                          className={`font-mono font-bold ${
+                                            isTerminalQuotaReached ? "text-amber-400" : "text-cyan-400"
+                                          }`}
+                                        >
+                                          {usedTerminals} / {totalTerminals} terminals active
+                                        </span>
+                                      </div>
+                                      <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                        <div
+                                          className={`h-full transition-all ${
+                                            isTerminalQuotaReached ? "bg-amber-400" : "bg-cyan-500"
+                                          }`}
+                                          style={{
+                                            width: `${Math.min(
+                                              100,
+                                              totalTerminals > 0 ? (usedTerminals / totalTerminals) * 100 : 0
+                                            )}%`,
+                                          }}
+                                        />
+                                      </div>
+                                      <div className="text-[11px] text-slate-400 mt-2 flex justify-between items-center">
+                                        <span>
+                                          Capacity: <strong>{totalTerminals} devices limit</strong>
+                                        </span>
+                                        {isTerminalQuotaReached && (
+                                          <span className="text-[10px] text-amber-400 font-semibold bg-amber-400/10 px-2 py-0.5 rounded">
+                                            Quota Reached
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Assigned Users List */}
+                                  <div>
+                                    <h5 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                                      Assigned Users ({appAssignments.length})
+                                    </h5>
+                                    {appAssignments.length === 0 ? (
+                                      <p className="text-xs text-slate-500 italic py-1">
+                                        No members assigned yet. Users in the Active User Pool cannot access this app until assigned a seat here.
+                                      </p>
+                                    ) : (
+                                      <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                                        {appAssignments.map((assign) => {
+                                          const userName = assign.user?.profile
+                                            ? `${assign.user.profile.first_name} ${assign.user.profile.last_name}`
+                                            : assign.user?.email || "Unknown User";
+                                          const userEmail = assign.user?.email;
+                                          return (
+                                            <div
+                                              key={assign.id}
+                                              className="flex items-center justify-between p-2 bg-slate-900/60 border border-slate-800 rounded-lg text-xs"
+                                            >
+                                              <div className="min-w-0 pr-2">
+                                                <div className="font-medium text-white truncate">
+                                                  {userName}
+                                                </div>
+                                                <div className="text-[10px] text-slate-400 truncate">
+                                                  {userEmail}
+                                                </div>
+                                                <div className="flex gap-1 mt-0.5">
+                                                  {assign.roles?.map((r) => (
+                                                    <span
+                                                      key={r.id}
+                                                      className="text-[9px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.2 rounded"
+                                                    >
+                                                      {r.name || r.code}
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                              <button
+                                                onClick={() =>
+                                                  handleRevokeAssignment(assign.id, userName)
+                                                }
+                                                title="Revoke seat access"
+                                                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Respective Hardware Terminals & Offline Licenses Section */}
+                                  <div className="pt-4 border-t border-slate-800">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                                      <div>
+                                        <h5 className="text-sm font-bold text-white flex items-center gap-2">
+                                          <Laptop className="w-4 h-4 text-cyan-400" />
+                                          <span>Hardware Terminals & Offline Licenses</span>
+                                        </h5>
+                                        <p className="text-xs text-slate-400">
+                                          Terminals and Ed25519 offline licenses entitled under {sub.plan?.name || "this subscription"}.
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    {subscriptionDevices.length === 0 && devices.length === 0 ? (
+                                      <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl text-center mb-4">
+                                        <p className="text-xs text-slate-400">No physical devices registered for this organization yet.</p>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-3 mb-4">
+                                        {(subscriptionDevices.length > 0 ? subscriptionDevices : devices).map((dev) => {
+                                          const subLic = dev.licenses?.find(
+                                            (l) => !appId || l.application_id === appId
+                                          );
+                                          const hasActiveLicense = subLic?.status === "ACTIVE";
+
+                                          return (
+                                            <div
+                                              key={dev.id}
+                                              className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                                            >
+                                              <div className="space-y-1.5">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                  <h6 className="font-semibold text-xs text-white">{dev.name}</h6>
+                                                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.2 rounded font-semibold">
+                                                    {dev.status}
+                                                  </span>
+                                                  {hasActiveLicense ? (
+                                                    <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-2 py-0.2 rounded font-semibold flex items-center gap-1">
+                                                      <CheckCircle2 className="w-3 h-3 text-cyan-400" />
+                                                      <span>License Active</span>
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-[10px] bg-slate-500/10 text-slate-400 border border-slate-500/20 px-2 py-0.2 rounded font-semibold">
+                                                      Unlicensed
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                <div className="flex items-center gap-3 text-[11px] text-slate-400 flex-wrap">
+                                                  <p className="font-mono">
+                                                    Fingerprint: {dev.fingerprint}
+                                                  </p>
+                                                  <span className="text-slate-600">•</span>
+                                                  <div className="flex items-center gap-1.5" title={`Last check-in: ${dev.last_heartbeat_at || "Never"}`}>
+                                                    <Activity
+                                                      className={`w-3.5 h-3.5 ${
+                                                        dev.last_heartbeat_at
+                                                          ? "text-emerald-400"
+                                                          : "text-slate-500"
+                                                      }`}
+                                                    />
+                                                    <span>
+                                                      Heartbeat:{" "}
+                                                      <strong
+                                                        className={
+                                                          dev.last_heartbeat_at
+                                                            ? "text-slate-300 font-medium"
+                                                            : "text-slate-500 font-normal"
+                                                        }
+                                                      >
+                                                        {formatHeartbeatTime(dev.last_heartbeat_at)}
+                                                      </strong>
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                {/* Location Assignment Scope */}
+                                                <div className="flex items-center gap-2 pt-0.5">
+                                                  <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                                  <span className="text-[11px] text-slate-400">Location:</span>
+                                                  <select
+                                                    value={dev.location_id || ""}
+                                                    onChange={(e) => handleReassignDevice(dev.id, e.target.value)}
+                                                    className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-emerald-500"
+                                                  >
+                                                    <option value="">Unassigned (Organization Scope)</option>
+                                                    {locations.map((l) => (
+                                                      <option key={l.id} value={l.id}>
+                                                        {l.name} ({l.code}) {l.status === "ARCHIVED" ? "[Archived]" : ""}
+                                                      </option>
+                                                    ))}
+                                                  </select>
+                                                </div>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                {appId ? (
+                                                  <button
+                                                    onClick={() => handleIssueLicense(dev.id, appId)}
+                                                    className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                                                  >
+                                                    <KeyRound className="w-3.5 h-3.5" />
+                                                    <span>{hasActiveLicense ? "Renew Offline License" : "Issue Offline License"}</span>
+                                                  </button>
+                                                ) : applications.length > 0 && (
+                                                  <button
+                                                    onClick={() => handleIssueLicense(dev.id, applications[0].id)}
+                                                    className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                                                  >
+                                                    <KeyRound className="w-3.5 h-3.5" />
+                                                    <span>{hasActiveLicense ? "Renew Offline License" : "Issue Offline License"}</span>
+                                                  </button>
+                                                )}
+                                                <button
+                                                  onClick={() => handleDeleteDevice(dev.id, dev.name)}
+                                                  title="Delete registered device"
+                                                  className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                  <span className="hidden sm:inline">Delete</span>
+                                                </button>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+
+                                    {/* Activated License Display */}
+                                    {activatedLicense && (
+                                      <div className="mt-4 mb-2 p-4 bg-cyan-950/40 border border-cyan-800/50 rounded-xl">
+                                        <p className="text-xs font-bold text-cyan-300 mb-1 flex items-center gap-1.5">
+                                          <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+                                          <span>Generated Cryptographic Ed25519 Offline License:</span>
+                                        </p>
+                                        <p className="text-[11px] text-slate-300 mb-2">
+                                          Install this license on the VEX POS terminal. It verifies offline cryptographically for 30 days.
+                                        </p>
+                                        <textarea
+                                          readOnly
+                                          rows={3}
+                                          value={activatedLicense}
+                                          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono text-[11px] text-cyan-200 select-all"
+                                        />
+                                      </div>
+                                    )}
+                                    <div className="border-t border-slate-800/80 pt-4 mt-4">
+                                      <h6 className="text-xs font-bold text-slate-300 mb-2.5 flex items-center gap-1.5">
+                                        <PlusCircle className="w-3.5 h-3.5 text-indigo-400" />
+                                        <span>Register Hardware Terminal for {sub.plan?.name}</span>
+                                      </h6>
+                                      <form onSubmit={handleRegisterDevice} className="grid grid-cols-1 md:grid-cols-4 gap-2.5">
+                                        <input
+                                          type="text"
+                                          required
+                                          value={newDeviceName}
+                                          onChange={(e) => setNewDeviceName(e.target.value)}
+                                          placeholder="Device Name (e.g. Counter POS #1)"
+                                          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                                        />
+                                        <input
+                                          type="text"
+                                          required
+                                          value={newDeviceFingerprint}
+                                          onChange={(e) => setNewDeviceFingerprint(e.target.value)}
+                                          placeholder="Hardware Fingerprint (e.g. HW-8934FA-X)"
+                                          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                                        />
+                                        <input
+                                          type="text"
+                                          required
+                                          value={newDevicePublicKey}
+                                          onChange={(e) => setNewDevicePublicKey(e.target.value)}
+                                          placeholder="Device Ed25519 Public Key"
+                                          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
+                                        />
+                                        <button
+                                          type="submit"
+                                          className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold py-1.5 transition"
+                                        >
+                                          Register Terminal
+                                        </button>
+                                      </form>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -1599,219 +1825,6 @@ export default function VexIAMApp() {
                       </div>
                     </div>
                   </div>
-
-                  {/* Device Licensing & Terminal Activations */}
-                  {(() => {
-                    const totalOrgTerminalQuota = subscriptions.reduce(
-                      (acc, s) => acc + (s.plan?.device_seats || 0),
-                      0
-                    );
-                    const licensedTerminalsCount = devices.filter((d) =>
-                      d.licenses?.some((l) => l.status === "ACTIVE")
-                    ).length;
-                    const isTotalTerminalQuotaReached =
-                      totalOrgTerminalQuota > 0 &&
-                      licensedTerminalsCount >= totalOrgTerminalQuota;
-
-                    return (
-                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-                          <div>
-                            <h3 className="text-base font-bold text-white flex items-center gap-2">
-                              <Laptop className="w-4 h-4 text-cyan-400" />
-                              <span>Hardware Terminals & Offline Licenses</span>
-                            </h3>
-                            <p className="text-xs text-slate-400">
-                              Register POS cashiers, tablets, and kiosks with 30-day offline Ed25519 cryptographic licenses.
-                            </p>
-                          </div>
-                          {totalOrgTerminalQuota > 0 && (
-                            <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700/80 rounded-xl px-3 py-1.5 self-start sm:self-auto">
-                              <Cpu className="w-4 h-4 text-cyan-400" />
-                              <div className="text-xs">
-                                <span className="text-slate-400">Quota: </span>
-                                <span
-                                  className={`font-mono font-bold ${
-                                    isTotalTerminalQuotaReached
-                                      ? "text-amber-400"
-                                      : "text-cyan-400"
-                                  }`}
-                                >
-                                  {licensedTerminalsCount} / {totalOrgTerminalQuota}
-                                </span>
-                                <span className="text-slate-400 text-[11px] ml-1">licensed</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Registered Devices List */}
-                        {devices.length === 0 ? (
-                          <div className="p-4 bg-slate-800/30 border border-slate-800 rounded-xl text-center mb-6">
-                            <p className="text-xs text-slate-400">No physical devices registered for this organization yet.</p>
-                          </div>
-                        ) : (
-                          <div className="space-y-3 mb-6">
-                            {devices.map((dev) => {
-                              const hasActiveLicense = dev.licenses?.some(
-                                (l) => l.status === "ACTIVE"
-                              );
-
-                              const assignedLoc = locations.find((l) => l.id === dev.location_id);
-
-                              return (
-                                <div
-                                  key={dev.id}
-                                  className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                                >
-                                  <div className="space-y-1.5">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <h4 className="font-semibold text-sm text-white">{dev.name}</h4>
-                                      <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.2 rounded font-semibold">
-                                        {dev.status}
-                                      </span>
-                                      {hasActiveLicense ? (
-                                        <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-2 py-0.2 rounded font-semibold flex items-center gap-1">
-                                          <CheckCircle2 className="w-3 h-3 text-cyan-400" />
-                                          <span>License Active</span>
-                                        </span>
-                                      ) : (
-                                        <span className="text-[10px] bg-slate-500/10 text-slate-400 border border-slate-500/20 px-2 py-0.2 rounded font-semibold">
-                                          Unlicensed
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-3 text-[11px] text-slate-400 flex-wrap">
-                                      <p className="font-mono">
-                                        Fingerprint: {dev.fingerprint}
-                                      </p>
-                                      <span className="text-slate-600">•</span>
-                                      <div className="flex items-center gap-1.5" title={`Last check-in: ${dev.last_heartbeat_at || "Never"}`}>
-                                        <Activity
-                                          className={`w-3.5 h-3.5 ${
-                                            dev.last_heartbeat_at
-                                              ? "text-emerald-400"
-                                              : "text-slate-500"
-                                          }`}
-                                        />
-                                        <span>
-                                          Heartbeat:{" "}
-                                          <strong
-                                            className={
-                                              dev.last_heartbeat_at
-                                                ? "text-slate-300 font-medium"
-                                                : "text-slate-500 font-normal"
-                                            }
-                                          >
-                                            {formatHeartbeatTime(dev.last_heartbeat_at)}
-                                          </strong>
-                                        </span>
-                                      </div>
-                                    </div>
-                                    {/* Location Assignment Scope */}
-                                    <div className="flex items-center gap-2 pt-1">
-                                      <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                      <span className="text-[11px] text-slate-400">Location:</span>
-                                      <select
-                                        value={dev.location_id || ""}
-                                        onChange={(e) => handleReassignDevice(dev.id, e.target.value)}
-                                        className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-emerald-500"
-                                      >
-                                        <option value="">Unassigned (Organization Scope)</option>
-                                        {locations.map((l) => (
-                                          <option key={l.id} value={l.id}>
-                                            {l.name} ({l.code}) {l.status === "ARCHIVED" ? "[Archived]" : ""}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    {applications.length > 0 && (
-                                      <button
-                                        onClick={() => handleIssueLicense(dev.id, applications[0].id)}
-                                        className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
-                                      >
-                                        <KeyRound className="w-3.5 h-3.5" />
-                                        <span>{hasActiveLicense ? "Renew Offline License" : "Issue Offline License"}</span>
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleDeleteDevice(dev.id, dev.name)}
-                                      title="Delete registered device"
-                                      className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                      <span className="hidden sm:inline">Delete</span>
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Activated License Display */}
-                        {activatedLicense && (
-                          <div className="mb-6 p-4 bg-cyan-950/40 border border-cyan-800/50 rounded-xl">
-                            <p className="text-xs font-bold text-cyan-300 mb-1 flex items-center gap-1.5">
-                              <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-                              <span>Generated Cryptographic Ed25519 Offline License:</span>
-                            </p>
-                            <p className="text-[11px] text-slate-300 mb-2">
-                              Install this license on the VEX POS terminal. It verifies offline cryptographically for 30 days.
-                            </p>
-                            <textarea
-                              readOnly
-                              rows={3}
-                              value={activatedLicense}
-                              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono text-[11px] text-cyan-200 select-all"
-                            />
-                          </div>
-                        )}
-
-                        {/* Register New Hardware Terminal Form */}
-                        <div className="border-t border-slate-800 pt-5">
-                          <h4 className="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
-                            <PlusCircle className="w-4 h-4 text-indigo-400" />
-                            <span>Register Hardware Terminal</span>
-                          </h4>
-                          <form onSubmit={handleRegisterDevice} className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                            <input
-                              type="text"
-                              required
-                              value={newDeviceName}
-                              onChange={(e) => setNewDeviceName(e.target.value)}
-                              placeholder="Device Name (e.g. Counter POS #1)"
-                              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
-                            />
-                            <input
-                              type="text"
-                              required
-                              value={newDeviceFingerprint}
-                              onChange={(e) => setNewDeviceFingerprint(e.target.value)}
-                              placeholder="Hardware Fingerprint (e.g. HW-8934FA-X)"
-                              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
-                            />
-                            <input
-                              type="text"
-                              required
-                              value={newDevicePublicKey}
-                              onChange={(e) => setNewDevicePublicKey(e.target.value)}
-                              placeholder="Device Ed25519 Public Key"
-                              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
-                            />
-                            <button
-                              type="submit"
-                              className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold py-2 transition"
-                            >
-                              Register Terminal
-                            </button>
-                          </form>
-                        </div>
-                      </div>
-                    );
-                  })()}
                 </>
               ) : (
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-400">
