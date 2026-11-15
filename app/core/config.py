@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     
     # Offline POS Licensing Settings
     OFFLINE_GRACE_PERIOD_DAYS: int = 7
-    POS_CLOUD_SYNC_URL: str = "https://pos-cloud.vexxero.com"
+    POS_CLOUD_SYNC_URL: str = "https://vexcloudapi.vexxero.com"
     POS_CLOUD_SYNC_TICKET_EXPIRE_HOURS: int = 72
     
     # Resend Email Settings

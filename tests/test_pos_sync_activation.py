@@ -134,9 +134,10 @@ async def test_pos_sync_activation_flow(client: AsyncClient):
     act_data = activate_res.json()
     assert act_data["device_id"] == device_id
     assert act_data["location_id"] == loc_id
-    assert act_data["sync_endpoint"] == settings.POS_CLOUD_SYNC_URL
+    assert act_data["sync_endpoint"] == "https://vexcloudapi.vexxero.com"
     assert act_data["signature_b64"] is not None
     assert act_data["ticket_payload"]["terminal_identifier"] == terminal_fingerprint
+    assert act_data["ticket_payload"]["sync_endpoint"] == "https://vexcloudapi.vexxero.com"
 
     # 11. Verify IAM Signature on the Ticket Payload using IAM's Public Key
     ticket_canonical_bytes = act_data["signed_ticket"].encode("utf-8")
@@ -144,3 +145,43 @@ async def test_pos_sync_activation_flow(client: AsyncClient):
     
     # Verify using VEX IAM's Ed25519 public key
     _public_key.verify(iam_sig_bytes, ticket_canonical_bytes)
+
+    # 12. Negative Test: When cloud sync (pos.sync) is disabled for a store, activation must return 403 Forbidden
+    disabled_loc_res = await client.post(
+        f"/api/v1/organizations/{org_id}/locations",
+        json={"code": "STORE-OFFLINE", "name": "Offline Store", "metadata": {"pos.sync": False}},
+        headers=owner_headers,
+    )
+    disabled_loc_id = disabled_loc_res.json()["id"]
+
+    # Reassign device to disabled location
+    reassign_res = await client.post(
+        f"/api/v1/devices/{device_id}/reassign",
+        json={"target_location_id": disabled_loc_id},
+        headers=owner_headers,
+    )
+    assert reassign_res.status_code == 200
+
+    # Request new challenge for disabled store activation attempt
+    chal2_res = await client.post("/api/v1/devices/challenge")
+    chal2_id = chal2_res.json()["challenge_id"]
+    proof2_payload = {
+        "challenge_id": chal2_id,
+        "device_id": device_id,
+        "fingerprint": terminal_fingerprint,
+        "nonce": chal2_res.json()["nonce"],
+        "purpose": "POS_SYNC_ACTIVATION",
+    }
+    client_sig2 = dev_priv_key.sign(rfc8785.dumps(proof2_payload))
+    client_sig2_b64 = base64.b64encode(client_sig2).decode("utf-8")
+
+    disabled_act_res = await client.post(
+        f"/api/v1/devices/{device_id}/sync-activate",
+        json={
+            "challenge_id": chal2_id,
+            "signature_b64": client_sig2_b64,
+            "application_code": "VEX-POS",
+        },
+    )
+    assert disabled_act_res.status_code == 403
+    assert "pos.sync" in disabled_act_res.json()["detail"]

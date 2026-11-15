@@ -31,6 +31,8 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
+  Sparkles,
+  Cloud,
 } from "lucide-react";
 
 interface UserProfile {
@@ -135,6 +137,7 @@ interface OrgLocation {
   timezone: string;
   status: string;
   created_at: string;
+  metadata?: Record<string, any> | null;
   applications?: LocationApplication[];
 }
 
@@ -212,6 +215,7 @@ export default function VexIAMApp() {
   const [locCountry, setLocCountry] = useState("LK");
   const [locTimezone, setLocTimezone] = useState("Asia/Colombo");
   const [locStatus, setLocStatus] = useState("ACTIVE");
+  const [locSyncEnabled, setLocSyncEnabled] = useState(true);
   const [locLoading, setLocLoading] = useState(false);
   const [locError, setLocError] = useState("");
 
@@ -294,6 +298,17 @@ export default function VexIAMApp() {
       setUser(JSON.parse(savedUser));
     }
 
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (
+        urlParams.get("mode") === "register" ||
+        urlParams.get("onboarding") === "pos" ||
+        urlParams.get("signup") === "true"
+      ) {
+        setIsLoginMode(false);
+      }
+    }
+
     const handleAuthExpired = () => {
       setToken(null);
       setUser(null);
@@ -353,6 +368,7 @@ export default function VexIAMApp() {
     setLocCountry("LK");
     setLocTimezone("Asia/Colombo");
     setLocStatus("ACTIVE");
+    setLocSyncEnabled(true);
     setLocError("");
     setLocationModalOpen(true);
   };
@@ -370,6 +386,8 @@ export default function VexIAMApp() {
     setLocCountry(loc.country_code || "LK");
     setLocTimezone(loc.timezone || "Asia/Colombo");
     setLocStatus(loc.status || "ACTIVE");
+    const meta = loc.metadata as Record<string, any> | undefined;
+    setLocSyncEnabled(meta ? meta["pos.sync"] !== false && meta["cloud_sync"] !== false : true);
     setLocError("");
     setLocationModalOpen(true);
   };
@@ -379,6 +397,12 @@ export default function VexIAMApp() {
     if (!selectedOrg) return;
     setLocError("");
     setLocLoading(true);
+
+    const metaPayload = {
+      ...((editingLocation?.metadata as Record<string, any>) || {}),
+      "pos.sync": locSyncEnabled,
+      "cloud_sync": locSyncEnabled,
+    };
 
     try {
       if (editingLocation) {
@@ -394,6 +418,7 @@ export default function VexIAMApp() {
           country_code: locCountry.trim().toUpperCase() || null,
           timezone: locTimezone.trim() || "UTC",
           status: locStatus,
+          metadata: metaPayload,
         });
       } else {
         // POST /organizations/{org_id}/locations
@@ -408,6 +433,7 @@ export default function VexIAMApp() {
           postal_code: locPostal.trim() || null,
           country_code: locCountry.trim().toUpperCase() || null,
           timezone: locTimezone.trim() || "UTC",
+          metadata: metaPayload,
         });
 
         // Automatically enable active applications (e.g. VEX-POS) at the newly created location if present
@@ -649,6 +675,8 @@ export default function VexIAMApp() {
       if (res.data.length > 0 && !selectedOrg) {
         setSelectedOrg(res.data[0]);
         fetchOrgDetails(res.data[0].id);
+      } else if (res.data.length === 0) {
+        setActiveTab("organizations");
       }
     } catch (e) {
       console.error(e);
@@ -774,13 +802,24 @@ export default function VexIAMApp() {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-6 text-white">
         <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
-          <div className="flex items-center space-x-3 mb-6">
+          <div className="flex items-center space-x-3 mb-4">
             <div className="h-10 w-10 bg-indigo-600 rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/30">
               V
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight">VEX IAM</h1>
               <p className="text-xs text-slate-400">Vexxero Identity & Access Management</p>
+            </div>
+          </div>
+
+          {/* POS Onboarding Guidance */}
+          <div className="mb-5 p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-xl flex items-start gap-2.5">
+            <Sparkles className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-indigo-200">POS First-Run Setup</p>
+              <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                Setting up a terminal from POS? Register your business owner account to establish your store organization and activate cloud sync.
+              </p>
             </div>
           </div>
 
@@ -809,7 +848,7 @@ export default function VexIAMApp() {
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              Register Identity
+              Register Account
             </button>
           </div>
 
@@ -883,10 +922,42 @@ export default function VexIAMApp() {
               disabled={authLoading}
               className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-all duration-200 flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/30"
             >
-              <span>{authLoading ? "Authenticating..." : isLoginMode ? "Sign In" : "Create Account"}</span>
+              <span>{authLoading ? "Authenticating..." : isLoginMode ? "Sign In" : "Create Business Account"}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
+
+          <div className="mt-4 text-center">
+            {isLoginMode ? (
+              <p className="text-xs text-slate-400">
+                New store owner?{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLoginMode(false);
+                    setAuthError("");
+                  }}
+                  className="text-indigo-400 hover:text-indigo-300 font-semibold underline"
+                >
+                  Create an account
+                </button>
+              </p>
+            ) : (
+              <p className="text-xs text-slate-400">
+                Already registered?{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLoginMode(true);
+                    setAuthError("");
+                  }}
+                  className="text-indigo-400 hover:text-indigo-300 font-semibold underline"
+                >
+                  Sign In
+                </button>
+              </p>
+            )}
+          </div>
 
           <p className="mt-6 text-center text-xs text-slate-500">
             Secured by Argon2id & Ed25519 token signatures.
@@ -1020,7 +1091,16 @@ export default function VexIAMApp() {
                 Businesses where your personal identity has active workspace access.
               </p>
               {organizations.length === 0 ? (
-                <p className="text-sm text-slate-500">You are not a member of any business entity yet.</p>
+                <div className="p-5 bg-slate-800/40 rounded-xl border border-slate-700/60 text-center">
+                  <p className="text-sm text-slate-400 mb-3">You are not a member of any business entity yet.</p>
+                  <button
+                    onClick={() => setActiveTab("organizations")}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition inline-flex items-center gap-2 shadow-sm shadow-indigo-600/30"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    <span>Establish Business Entity & Setup POS</span>
+                  </button>
+                </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {organizations.map((org) => (
@@ -1047,6 +1127,71 @@ export default function VexIAMApp() {
 
         {/* Tab 2: Organizations & User Pool */}
         {activeTab === "organizations" && (
+          <div className="space-y-6">
+            {/* POS Onboarding Guide Checklist */}
+            <div className="p-5 bg-gradient-to-r from-indigo-950/60 via-slate-900 to-slate-900 border border-indigo-500/30 rounded-2xl">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-sm font-bold text-white">POS Onboarding & Setup Workflow</h3>
+              </div>
+              <p className="text-xs text-slate-300 mb-4">
+                Follow these 3 steps to register your business, configure your store location, and activate POS Cloud Synchronization:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    organizations.length > 0
+                      ? "bg-emerald-500/10 border-emerald-500/30"
+                      : "bg-indigo-600/15 border-indigo-500/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Step 1</span>
+                    {organizations.length > 0 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                  </div>
+                  <h4 className="text-xs font-semibold text-white">Establish Business Entity</h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {organizations.length > 0 ? `Registered: ${selectedOrg?.name || "Completed"}` : "Create your organization name below."}
+                  </p>
+                </div>
+                <div
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    locations.length > 0
+                      ? "bg-emerald-500/10 border-emerald-500/30"
+                      : organizations.length > 0
+                      ? "bg-indigo-600/15 border-indigo-500/40"
+                      : "bg-slate-800/40 border-slate-700/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Step 2</span>
+                    {locations.length > 0 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                  </div>
+                  <h4 className="text-xs font-semibold text-white">Add Store Location</h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {locations.length > 0 ? `${locations.length} location(s) active with POS sync` : "Create your branch location."}
+                  </p>
+                </div>
+                <div
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    devices.length > 0
+                      ? "bg-emerald-500/10 border-emerald-500/30"
+                      : locations.length > 0
+                      ? "bg-indigo-600/15 border-indigo-500/40"
+                      : "bg-slate-800/40 border-slate-700/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Step 3</span>
+                    {devices.length > 0 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                  </div>
+                  <h4 className="text-xs font-semibold text-white">Connect & View POS Devices</h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {devices.length > 0 ? `${devices.length} terminal(s) registered` : "Register and activate terminal sync tickets."}
+                  </p>
+                </div>
+              </div>
+            </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left: Organization list & Creation */}
             <div className="space-y-6">
@@ -1323,17 +1468,38 @@ export default function VexIAMApp() {
                                       )}
                                     </button>
                                   </div>
-                                  <span
-                                    className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
-                                      isActive
-                                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                        : isArchived
-                                        ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                                        : "bg-slate-700/50 text-slate-300 border-slate-600"
-                                    }`}
-                                  >
-                                    {loc.status}
-                                  </span>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span
+                                      className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                                        isActive
+                                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                          : isArchived
+                                          ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                          : "bg-slate-700/50 text-slate-300 border-slate-600"
+                                      }`}
+                                    >
+                                      {loc.status}
+                                    </span>
+                                    <span
+                                      className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border flex items-center gap-1 ${
+                                        (loc.metadata as any)?.["pos.sync"] !== false && (loc.metadata as any)?.["cloud_sync"] !== false
+                                          ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
+                                          : "bg-slate-700/50 text-slate-400 border-slate-600"
+                                      }`}
+                                      title={
+                                        (loc.metadata as any)?.["pos.sync"] !== false && (loc.metadata as any)?.["cloud_sync"] !== false
+                                          ? "Cloud synchronization is authorized for this store."
+                                          : "Cloud synchronization is disabled for this store."
+                                      }
+                                    >
+                                      <Cloud className="w-2.5 h-2.5" />
+                                      <span>
+                                        {(loc.metadata as any)?.["pos.sync"] !== false && (loc.metadata as any)?.["cloud_sync"] !== false
+                                          ? "Sync Active"
+                                          : "Sync Disabled"}
+                                      </span>
+                                    </span>
+                                  </div>
                                 </div>
 
                                 <h4 className="text-sm font-semibold text-white mb-1">{loc.name}</h4>
@@ -1893,6 +2059,7 @@ export default function VexIAMApp() {
               )}
             </div>
           </div>
+        </div>
         )}
 
         {/* Tab 3: Applications Catalog */}
@@ -2112,6 +2279,27 @@ export default function VexIAMApp() {
                       </select>
                     </div>
                   )}
+                </div>
+
+                {/* Cloud Sync Feature Flag for Store */}
+                <div className="bg-slate-800/40 border border-slate-700/60 p-3.5 rounded-xl">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={locSyncEnabled}
+                      onChange={(e) => setLocSyncEnabled(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-0"
+                    />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                        <Cloud className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Authorize POS Cloud Synchronization (pos.sync)</span>
+                      </span>
+                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                        When active, registered hardware terminals at this location are entitled to obtain cloud sync tickets. If unpurchased or disabled, POS devices will keep events locally queued.
+                      </p>
+                    </div>
+                  </label>
                 </div>
 
                 <div className="flex gap-2 pt-3 border-t border-slate-800">

@@ -1,13 +1,17 @@
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_platform_admin, require_verified_user
 from app.domains.identity.models import User
 from app.domains.licensing.models import Device, DeviceStatus
+from app.domains.locations.models import Location, LocationStatus
+from app.domains.subscriptions.models import Subscription, Plan, SubscriptionStatus
+from app.domains.applications.models import Application
 from app.domains.licensing.schemas import (
     PlanCreateRequest,
     PlanResponse,
@@ -383,6 +387,56 @@ async def internal_verify_device(
             detail=f"Device '{terminal_identifier}' not found in organization '{organization_id}'.",
         )
 
+    # Determine sync entitlement based on active store status, feature flag, and subscription
+    is_sync_entitled = False
+    if device.status == DeviceStatus.ACTIVE and device.location_id:
+        stmt_loc = select(Location).where(
+            and_(
+                Location.id == device.location_id,
+                Location.organization_id == organization_id,
+            )
+        )
+        res_loc = await db.execute(stmt_loc)
+        loc = res_loc.scalar_one_or_none()
+        if loc and loc.status == LocationStatus.ACTIVE:
+            loc_meta = loc.metadata_json or {}
+            if not (
+                loc_meta.get("pos.sync") is False
+                or loc_meta.get("cloud_sync") is False
+                or loc_meta.get("sync_enabled") is False
+            ):
+                now_utc = datetime.now(timezone.utc)
+                stmt_sub = (
+                    select(Subscription)
+                    .join(Plan, Subscription.plan_id == Plan.id)
+                    .join(Application, Plan.application_id == Application.id)
+                    .where(
+                        and_(
+                            Subscription.organization_id == organization_id,
+                            func.upper(Application.code) == "VEX-POS",
+                            Subscription.status == SubscriptionStatus.ACTIVE,
+                        )
+                    )
+                    .options(selectinload(Subscription.plan))
+                )
+                res_sub = await db.execute(stmt_sub)
+                active_subs = res_sub.scalars().all()
+                valid_subs = [
+                    s for s in active_subs
+                    if s.expires_at is None or (
+                        (s.expires_at if s.expires_at.tzinfo is not None else s.expires_at.replace(tzinfo=timezone.utc)) > now_utc
+                    )
+                ]
+                sync_entitled_subs = [
+                    s for s in valid_subs
+                    if s.plan and not (
+                        "OFFLINE" in s.plan.code.upper()
+                        or (s.plan.description and "offline only" in s.plan.description.lower())
+                    )
+                ]
+                if sync_entitled_subs:
+                    is_sync_entitled = True
+
     return DeviceInternalVerificationResponse(
         device_id=device.id,
         organization_id=device.organization_id,
@@ -392,7 +446,7 @@ async def internal_verify_device(
         public_key=device.public_key,
         status=device.status,
         is_valid=(device.status == DeviceStatus.ACTIVE),
-        sync_entitled=True,
+        sync_entitled=is_sync_entitled,
     )
 
 

@@ -1525,17 +1525,28 @@ class CommercialAndLicensingService:
                 detail=f"Device is not active (status: {device.status.value}). Sync activation denied.",
             )
 
-        # 2. Check location assignment
+        # 2. Check location assignment and store-level sync entitlement
         if not device.location_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Device must be assigned to a location/store before activating cloud sync.",
             )
 
-        if device.location and device.location.status != LocationStatus.ACTIVE:
+        if not device.location or device.location.status != LocationStatus.ACTIVE:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Assigned location is inactive or archived. Sync activation denied.",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cloud synchronization (pos.sync) is not active for this store.",
+            )
+
+        loc_meta = device.location.metadata_json or {}
+        if (
+            loc_meta.get("pos.sync") is False
+            or loc_meta.get("cloud_sync") is False
+            or loc_meta.get("sync_enabled") is False
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cloud synchronization (pos.sync) is not active for this store.",
             )
 
         # 3. Optional challenge verification for cryptographic proof-of-possession
@@ -1610,6 +1621,21 @@ class CommercialAndLicensingService:
                     detail=f"Application '{req.application_code}' not found.",
                 )
 
+        # Check if LocationApplication exists and is inactive/suspended
+        stmt_loc_app = select(LocationApplication).where(
+            and_(
+                LocationApplication.location_id == device.location_id,
+                LocationApplication.application_id == app_obj.id,
+            )
+        )
+        res_loc_app = await db.execute(stmt_loc_app)
+        loc_app = res_loc_app.scalar_one_or_none()
+        if loc_app and loc_app.status != LocationApplicationStatus.ACTIVE:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cloud synchronization (pos.sync) is not active for this store.",
+            )
+
         now_utc = datetime.now(timezone.utc)
         sub_stmt = (
             select(Subscription)
@@ -1621,6 +1647,7 @@ class CommercialAndLicensingService:
                     Subscription.status == SubscriptionStatus.ACTIVE,
                 )
             )
+            .options(selectinload(Subscription.plan))
         )
         sub_res = await db.execute(sub_stmt)
         active_subs = sub_res.scalars().all()
@@ -1633,7 +1660,21 @@ class CommercialAndLicensingService:
         if not valid_subs:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Organization does not hold active subscription for POS cloud synchronization.",
+                detail="Cloud synchronization (pos.sync) is not active for this store.",
+            )
+
+        # Check subscription tier for pos.sync capability
+        sync_entitled_subs = [
+            s for s in valid_subs
+            if s.plan and not (
+                "OFFLINE" in s.plan.code.upper()
+                or (s.plan.description and "offline only" in s.plan.description.lower())
+            )
+        ]
+        if not sync_entitled_subs:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cloud synchronization (pos.sync) is not active for this store.",
             )
 
         # 5. Issue Ed25519-Signed Sync Activation Ticket
