@@ -447,6 +447,7 @@ async def internal_verify_device(
         status=device.status,
         is_valid=(device.status == DeviceStatus.ACTIVE),
         sync_entitled=is_sync_entitled,
+        sync_enabled=device.sync_enabled,
     )
 
 
@@ -468,5 +469,22 @@ async def activate_device_sync(
     """
     return await CommercialAndLicensingService.activate_device_sync(
         db, device_id, req
+    )
+
+
+@router.post(
+    "/devices/{device_id}/sync-deactivate",
+    status_code=status.HTTP_200_OK,
+    summary="Deactivate/disable POS cloud synchronization for a registered terminal device",
+)
+async def deactivate_device_sync(
+    device_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Authoritative IAM step to disable cloud synchronization for a registered terminal device.
+    """
+    return await CommercialAndLicensingService.deactivate_device_sync(
+        db, device_id
     )
 

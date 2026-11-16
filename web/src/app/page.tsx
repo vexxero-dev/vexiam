@@ -33,6 +33,7 @@ import {
   RefreshCw,
   Sparkles,
   Cloud,
+  CloudOff,
 } from "lucide-react";
 
 interface UserProfile {
@@ -106,6 +107,7 @@ interface Device {
   name: string;
   fingerprint: string;
   status: string;
+  sync_enabled?: boolean;
   last_heartbeat_at?: string | null;
   created_at: string;
   licenses?: DeviceLicenseSummary[];
@@ -637,6 +639,27 @@ export default function VexIAMApp() {
       }
     } catch (err: any) {
       alert(err.response?.data?.detail || "Failed to activate POS cloud sync. Ensure device is assigned to an active location and has an active subscription.");
+    } finally {
+      setSyncActivatingDeviceId(null);
+    }
+  };
+
+  const handleDeactivatePosSync = async (deviceId: string) => {
+    if (!confirm("Are you sure you want to disable POS Cloud Sync for this device?")) {
+      return;
+    }
+    setSyncActivatingDeviceId(deviceId);
+    try {
+      await api.post(`/devices/${deviceId}/sync-deactivate`);
+      alert("POS Cloud Sync disabled successfully.");
+      if (activatedSyncTicket?.device_id === deviceId) {
+        setActivatedSyncTicket(null);
+      }
+      if (selectedOrg) {
+        loadOrgDevices(selectedOrg.id);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to disable POS cloud sync.");
     } finally {
       setSyncActivatingDeviceId(null);
     }
@@ -1906,15 +1929,27 @@ export default function VexIAMApp() {
                                                     <span>{hasActiveLicense ? "Renew Offline License" : "Issue Offline License"}</span>
                                                   </button>
                                                 )}
-                                                <button
-                                                  onClick={() => handleActivatePosSync(dev.id, appCode)}
-                                                  disabled={syncActivatingDeviceId === dev.id}
-                                                  title="Activate POS Cloud Synchronization ticket via VEX IAM authority"
-                                                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
-                                                >
-                                                  <RefreshCw className={`w-3.5 h-3.5 ${syncActivatingDeviceId === dev.id ? "animate-spin" : ""}`} />
-                                                  <span>{syncActivatingDeviceId === dev.id ? "Activating..." : "Activate POS Sync"}</span>
-                                                </button>
+                                                {dev.sync_enabled || (activatedSyncTicket && activatedSyncTicket.device_id === dev.id) ? (
+                                                  <button
+                                                    onClick={() => handleDeactivatePosSync(dev.id)}
+                                                    disabled={syncActivatingDeviceId === dev.id}
+                                                    title="Disable POS Cloud Synchronization for this terminal"
+                                                    className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-600 disabled:bg-slate-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm border border-rose-500/30"
+                                                  >
+                                                    <CloudOff className="w-3.5 h-3.5" />
+                                                    <span>{syncActivatingDeviceId === dev.id ? "Updating..." : "Disable POS Sync"}</span>
+                                                  </button>
+                                                ) : (
+                                                  <button
+                                                    onClick={() => handleActivatePosSync(dev.id, appCode)}
+                                                    disabled={syncActivatingDeviceId === dev.id}
+                                                    title="Activate POS Cloud Synchronization ticket via VEX IAM authority"
+                                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
+                                                  >
+                                                    <RefreshCw className={`w-3.5 h-3.5 ${syncActivatingDeviceId === dev.id ? "animate-spin" : ""}`} />
+                                                    <span>{syncActivatingDeviceId === dev.id ? "Activating..." : "Activate POS Sync"}</span>
+                                                  </button>
+                                                )}
                                                 <button
                                                   onClick={() => handleDeleteDevice(dev.id, dev.name)}
                                                   title="Delete registered device"

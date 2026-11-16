@@ -200,6 +200,7 @@ class DeviceResponse(BaseModel):
     name: str
     fingerprint: str
     status: DeviceStatus
+    sync_enabled: bool = False
     last_heartbeat_at: Optional[datetime] = None
     created_at: datetime
     licenses: list[DeviceLicenseSummary] = Field(default_factory=list)
@@ -246,6 +247,7 @@ class DeviceInternalVerificationResponse(BaseModel):
     status: DeviceStatus
     is_valid: bool
     sync_entitled: bool = True
+    sync_enabled: bool = False
 
 
 class PosSyncActivationRequest(BaseModel):

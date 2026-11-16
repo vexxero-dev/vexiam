@@ -185,3 +185,18 @@ async def test_pos_sync_activation_flow(client: AsyncClient):
     )
     assert disabled_act_res.status_code == 403
     assert "pos.sync" in disabled_act_res.json()["detail"]
+
+    # 13. Verify sync_enabled flag & Deactivation endpoint
+    dev_info = await client.get(f"/api/v1/organizations/{org_id}/devices", headers=owner_headers)
+    assert dev_info.status_code == 200
+    target_dev = next(d for d in dev_info.json() if d["id"] == device_id)
+    assert target_dev["sync_enabled"] is True
+
+    # Test deactivate sync
+    deact_res = await client.post(f"/api/v1/devices/{device_id}/sync-deactivate", headers=owner_headers)
+    assert deact_res.status_code == 200
+    assert deact_res.json()["sync_enabled"] is False
+
+    dev_info_after = await client.get(f"/api/v1/organizations/{org_id}/devices", headers=owner_headers)
+    target_dev_after = next(d for d in dev_info_after.json() if d["id"] == device_id)
+    assert target_dev_after["sync_enabled"] is False

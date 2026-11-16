@@ -1701,8 +1701,9 @@ class CommercialAndLicensingService:
         iam_signature = _private_key.sign(canonical_ticket_bytes)
         signature_b64 = base64.b64encode(iam_signature).decode("utf-8")
 
-        # Update device heartbeat and status
+        # Update device heartbeat, status, and enable sync
         device.last_heartbeat_at = now_ts
+        device.sync_enabled = True
         await db.commit()
 
         return PosSyncActivationResponse(
@@ -1718,4 +1719,31 @@ class CommercialAndLicensingService:
             expires_at=expires_ts,
             message="POS cloud sync successfully activated via VEX IAM authority.",
         )
+
+    @staticmethod
+    async def deactivate_device_sync(
+        db: AsyncSession,
+        device_id: uuid.UUID,
+    ) -> dict:
+        """
+        Deactivates POS cloud sync for a registered device via VEX IAM.
+        Sets sync_enabled = False on the device.
+        """
+        stmt = select(Device).where(Device.id == device_id)
+        res = await db.execute(stmt)
+        device = res.scalar_one_or_none()
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Device '{device_id}' not found.",
+            )
+
+        device.sync_enabled = False
+        await db.commit()
+
+        return {
+            "device_id": str(device.id),
+            "sync_enabled": False,
+            "message": "POS cloud sync successfully disabled.",
+        }
 
