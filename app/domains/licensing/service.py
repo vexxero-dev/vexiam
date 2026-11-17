@@ -1082,6 +1082,69 @@ class CommercialAndLicensingService:
         )
 
     @staticmethod
+    async def evaluate_sync_entitlement(
+        db: AsyncSession,
+        organization_id: uuid.UUID,
+        device: Device,
+    ) -> bool:
+        """
+        Authoritative PDP check: Determines if a device is entitled to cloud synchronization
+        based on device status, assigned location status, store-level sync flags, and active POS subscription.
+        """
+        if device.status != DeviceStatus.ACTIVE or not device.location_id:
+            return False
+
+        stmt_loc = select(Location).where(
+            and_(
+                Location.id == device.location_id,
+                Location.organization_id == organization_id,
+            )
+        )
+        res_loc = await db.execute(stmt_loc)
+        loc = res_loc.scalar_one_or_none()
+        if not loc or loc.status != LocationStatus.ACTIVE:
+            return False
+
+        loc_meta = loc.metadata_json or {}
+        if (
+            loc_meta.get("pos.sync") is False
+            or loc_meta.get("cloud_sync") is False
+            or loc_meta.get("sync_enabled") is False
+        ):
+            return False
+
+        now_utc = datetime.now(timezone.utc)
+        stmt_sub = (
+            select(Subscription)
+            .join(Plan, Subscription.plan_id == Plan.id)
+            .join(Application, Plan.application_id == Application.id)
+            .where(
+                and_(
+                    Subscription.organization_id == organization_id,
+                    func.upper(Application.code) == "VEX-POS",
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+            )
+            .options(selectinload(Subscription.plan))
+        )
+        res_sub = await db.execute(stmt_sub)
+        active_subs = res_sub.scalars().all()
+        valid_subs = [
+            s for s in active_subs
+            if s.expires_at is None or (
+                (s.expires_at if s.expires_at.tzinfo is not None else s.expires_at.replace(tzinfo=timezone.utc)) > now_utc
+            )
+        ]
+        sync_entitled_subs = [
+            s for s in valid_subs
+            if s.plan and not (
+                "OFFLINE" in s.plan.code.upper()
+                or (s.plan.description and "offline only" in s.plan.description.lower())
+            )
+        ]
+        return bool(sync_entitled_subs)
+
+    @staticmethod
     async def process_heartbeat(
         db: AsyncSession, device_id: uuid.UUID, req: MachineHeartbeatRequest
     ) -> dict:
@@ -1149,6 +1212,8 @@ class CommercialAndLicensingService:
                 "device_status": DeviceStatus.REVOKED,
                 "license_status": LicenseStatus.REVOKED,
                 "is_valid": False,
+                "sync_entitled": False,
+                "sync_enabled": False,
                 "message": "Device registration has been revoked by an administrator.",
                 "license": None,
             }
@@ -1156,6 +1221,12 @@ class CommercialAndLicensingService:
         # Update last heartbeat timestamp
         now = datetime.now(timezone.utc)
         device.last_heartbeat_at = now
+
+        # Authoritative PDP evaluation of sync entitlement for this device
+        sync_entitled = await CommercialAndLicensingService.evaluate_sync_entitlement(
+            db, device.organization_id, device
+        )
+        sync_enabled = bool(device.sync_enabled)
 
         # Fetch organization info
         stmt_org = select(Organization).where(Organization.id == device.organization_id)
@@ -1200,6 +1271,8 @@ class CommercialAndLicensingService:
                     "device_status": device.status,
                     "license_status": LicenseStatus.REVOKED,
                     "is_valid": False,
+                    "sync_entitled": False,
+                    "sync_enabled": sync_enabled,
                     "message": "Assigned location is inactive or archived.",
                     "license": None,
                 }
@@ -1220,6 +1293,8 @@ class CommercialAndLicensingService:
                         "device_status": device.status,
                         "license_status": LicenseStatus.REVOKED,
                         "is_valid": False,
+                        "sync_entitled": False,
+                        "sync_enabled": sync_enabled,
                         "message": f"Application '{app.code}' is not active at assigned location.",
                         "license": None,
                     }
@@ -1244,6 +1319,8 @@ class CommercialAndLicensingService:
                     "device_status": device.status,
                     "license_status": LicenseStatus.REVOKED,
                     "is_valid": False,
+                    "sync_entitled": sync_entitled,
+                    "sync_enabled": sync_enabled,
                     "message": "Application license has been revoked.",
                     "license": None,
                 }
@@ -1271,6 +1348,8 @@ class CommercialAndLicensingService:
                     "device_status": device.status,
                     "license_status": LicenseStatus.EXPIRED,
                     "is_valid": False,
+                    "sync_entitled": sync_entitled,
+                    "sync_enabled": sync_enabled,
                     "message": "Organization subscription is expired or inactive.",
                     "license": None,
                 }
@@ -1316,6 +1395,8 @@ class CommercialAndLicensingService:
                 "organization_name": org_name,
                 "product_name": app.name if app else None,
                 "is_valid": True,
+                "sync_entitled": sync_entitled,
+                "sync_enabled": sync_enabled,
                 "message": "License renewed and active.",
                 "license": target_license,
             }
@@ -1329,6 +1410,8 @@ class CommercialAndLicensingService:
             "organization_name": org_name,
             "product_name": app.name if app else None,
             "is_valid": True,
+            "sync_entitled": sync_entitled,
+            "sync_enabled": sync_enabled,
             "message": "Heartbeat recorded.",
             "license": None,
         }

@@ -231,6 +231,8 @@ class DeviceHeartbeatResponse(BaseModel):
     organization_name: Optional[str] = None
     product_name: Optional[str] = None
     is_valid: bool
+    sync_entitled: bool = False
+    sync_enabled: bool = False
     message: str
     license: Optional["LicenseResponse"] = None
 

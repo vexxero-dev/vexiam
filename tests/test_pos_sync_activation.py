@@ -1,6 +1,7 @@
 import pytest
 import base64
 import rfc8785
+from datetime import datetime, timezone
 from httpx import AsyncClient
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
@@ -154,6 +155,13 @@ async def test_pos_sync_activation_flow(client: AsyncClient):
     )
     disabled_loc_id = disabled_loc_res.json()["id"]
 
+    # Enable VEX-POS at this store location
+    await client.post(
+        f"/api/v1/locations/{disabled_loc_id}/applications",
+        json={"application_id": app_id},
+        headers=owner_headers,
+    )
+
     # Reassign device to disabled location
     reassign_res = await client.post(
         f"/api/v1/devices/{device_id}/reassign",
@@ -192,7 +200,40 @@ async def test_pos_sync_activation_flow(client: AsyncClient):
     target_dev = next(d for d in dev_info.json() if d["id"] == device_id)
     assert target_dev["sync_enabled"] is True
 
-    # Test deactivate sync
+    # 14. Verify Authoritative PDP Heartbeat Response when device has sync_enabled=True but reassigned to offline store (sync_entitled=False)
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    hb_canonical = {
+        "device_id": device_id,
+        "fingerprint": terminal_fingerprint,
+        "sequence": 1,
+        "timestamp": now_ts,
+        "application_id": "VEX-POS",
+    }
+    hb_sig = dev_priv_key.sign(rfc8785.dumps(hb_canonical))
+    hb_sig_b64 = base64.b64encode(hb_sig).decode("utf-8")
+
+    hb_res = await client.post(
+        f"/api/v1/devices/{device_id}/heartbeat",
+        json={"canonical_request": hb_canonical, "signature_b64": hb_sig_b64},
+    )
+    assert hb_res.status_code == 200
+    hb_data = hb_res.json()
+    assert hb_data["device_status"] == "ACTIVE"
+    assert hb_data["is_valid"] is True
+    assert hb_data["sync_enabled"] is True
+    assert hb_data["sync_entitled"] is False
+
+    # Also verify internal PDP endpoint directly reflects this exact policy state
+    pdp_res = await client.get(
+        f"/api/v1/devices/internal/verify?organization_id={org_id}&terminal_identifier={device_id}",
+        headers={"X-Platform-Admin-Key": settings.PLATFORM_ADMIN_KEY},
+    )
+    assert pdp_res.status_code == 200
+    pdp_data = pdp_res.json()
+    assert pdp_data["sync_enabled"] is True
+    assert pdp_data["sync_entitled"] is False
+
+    # 15. Test deactivate sync and check updated heartbeat + PDP policy state
     deact_res = await client.post(f"/api/v1/devices/{device_id}/sync-deactivate", headers=owner_headers)
     assert deact_res.status_code == 200
     assert deact_res.json()["sync_enabled"] is False
@@ -200,3 +241,30 @@ async def test_pos_sync_activation_flow(client: AsyncClient):
     dev_info_after = await client.get(f"/api/v1/organizations/{org_id}/devices", headers=owner_headers)
     target_dev_after = next(d for d in dev_info_after.json() if d["id"] == device_id)
     assert target_dev_after["sync_enabled"] is False
+
+    hb2_canonical = {
+        "device_id": device_id,
+        "fingerprint": terminal_fingerprint,
+        "sequence": 2,
+        "timestamp": now_ts,
+        "application_id": "VEX-POS",
+    }
+    hb2_sig = dev_priv_key.sign(rfc8785.dumps(hb2_canonical))
+    hb2_sig_b64 = base64.b64encode(hb2_sig).decode("utf-8")
+
+    hb2_res = await client.post(
+        f"/api/v1/devices/{device_id}/heartbeat",
+        json={"canonical_request": hb2_canonical, "signature_b64": hb2_sig_b64},
+    )
+    assert hb2_res.status_code == 200
+    hb2_data = hb2_res.json()
+    assert hb2_data["sync_enabled"] is False
+    assert hb2_data["sync_entitled"] is False
+
+    pdp2_res = await client.get(
+        f"/api/v1/devices/internal/verify?organization_id={org_id}&terminal_identifier={device_id}",
+        headers={"X-Platform-Admin-Key": settings.PLATFORM_ADMIN_KEY},
+    )
+    assert pdp2_res.status_code == 200
+    assert pdp2_res.json()["sync_enabled"] is False
+    assert pdp2_res.json()["sync_entitled"] is False
