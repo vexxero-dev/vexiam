@@ -108,6 +108,8 @@ interface Device {
   fingerprint: string;
   status: string;
   sync_enabled?: boolean;
+  menu_mode?: string | null;
+  effective_menu_mode?: string;
   last_heartbeat_at?: string | null;
   created_at: string;
   licenses?: DeviceLicenseSummary[];
@@ -138,6 +140,9 @@ interface OrgLocation {
   country_code?: string | null;
   timezone: string;
   status: string;
+  pos_mode_policy?: "ANY_ALLOWED" | "LOCAL_ONLY" | "CLOUD_ONLY";
+  pos_default_mode?: "LOCAL" | "CLOUD";
+  pos_sync_allowed?: boolean;
   created_at: string;
   metadata?: Record<string, any> | null;
   applications?: LocationApplication[];
@@ -218,6 +223,8 @@ export default function VexIAMApp() {
   const [locTimezone, setLocTimezone] = useState("Asia/Colombo");
   const [locStatus, setLocStatus] = useState("ACTIVE");
   const [locSyncEnabled, setLocSyncEnabled] = useState(true);
+  const [locPosModePolicy, setLocPosModePolicy] = useState<"ANY_ALLOWED" | "LOCAL_ONLY" | "CLOUD_ONLY">("ANY_ALLOWED");
+  const [locPosDefaultMode, setLocPosDefaultMode] = useState<"LOCAL" | "CLOUD">("LOCAL");
   const [locLoading, setLocLoading] = useState(false);
   const [locError, setLocError] = useState("");
 
@@ -371,6 +378,8 @@ export default function VexIAMApp() {
     setLocTimezone("Asia/Colombo");
     setLocStatus("ACTIVE");
     setLocSyncEnabled(true);
+    setLocPosModePolicy("ANY_ALLOWED");
+    setLocPosDefaultMode("LOCAL");
     setLocError("");
     setLocationModalOpen(true);
   };
@@ -388,8 +397,10 @@ export default function VexIAMApp() {
     setLocCountry(loc.country_code || "LK");
     setLocTimezone(loc.timezone || "Asia/Colombo");
     setLocStatus(loc.status || "ACTIVE");
+    setLocPosModePolicy(loc.pos_mode_policy || "ANY_ALLOWED");
+    setLocPosDefaultMode(loc.pos_default_mode || "LOCAL");
     const meta = loc.metadata as Record<string, any> | undefined;
-    setLocSyncEnabled(meta ? meta["pos.sync"] !== false && meta["cloud_sync"] !== false : true);
+    setLocSyncEnabled(loc.pos_sync_allowed !== undefined ? loc.pos_sync_allowed : (meta ? meta["pos.sync"] !== false && meta["cloud_sync"] !== false : true));
     setLocError("");
     setLocationModalOpen(true);
   };
@@ -422,6 +433,13 @@ export default function VexIAMApp() {
           status: locStatus,
           metadata: metaPayload,
         });
+
+        // PUT /locations/{location_id}/pos-policy
+        await api.put(`/locations/${editingLocation.id}/pos-policy`, {
+          pos_mode_policy: locPosModePolicy,
+          pos_default_mode: locPosDefaultMode,
+          pos_sync_allowed: locSyncEnabled,
+        });
       } else {
         // POST /organizations/{org_id}/locations
         const createdLoc = await api.post(`/organizations/${selectedOrg.id}/locations`, {
@@ -437,6 +455,18 @@ export default function VexIAMApp() {
           timezone: locTimezone.trim() || "UTC",
           metadata: metaPayload,
         });
+
+        if (createdLoc.data?.id) {
+          try {
+            await api.put(`/locations/${createdLoc.data.id}/pos-policy`, {
+              pos_mode_policy: locPosModePolicy,
+              pos_default_mode: locPosDefaultMode,
+              pos_sync_allowed: locSyncEnabled,
+            });
+          } catch (posPolErr) {
+            console.warn("Could not set initial pos policy:", posPolErr);
+          }
+        }
 
         // Automatically enable active applications (e.g. VEX-POS) at the newly created location if present
         if (applications.length > 0 && createdLoc.data?.id) {
@@ -674,6 +704,16 @@ export default function VexIAMApp() {
       loadOrgDevices(selectedOrg.id);
     } catch (err: any) {
       alert(err.response?.data?.detail || "Failed to reassign device.");
+    }
+  };
+
+  const handleUpdateDeviceMenuMode = async (deviceId: string, newMode: string) => {
+    if (!selectedOrg) return;
+    try {
+      await api.post(`/devices/${deviceId}/menu-mode?mode=${encodeURIComponent(newMode)}`);
+      loadOrgDevices(selectedOrg.id);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to update terminal operating mode.");
     }
   };
 
@@ -1843,6 +1883,7 @@ export default function VexIAMApp() {
                                             (l) => !appId || l.application_id === appId
                                           );
                                           const hasActiveLicense = subLic?.status === "ACTIVE";
+                                          const assignedLoc = locations.find((l) => l.id === dev.location_id);
 
                                           return (
                                             <div
@@ -1893,22 +1934,52 @@ export default function VexIAMApp() {
                                                     </span>
                                                   </div>
                                                 </div>
-                                                {/* Location Assignment Scope */}
-                                                <div className="flex items-center gap-2 pt-0.5">
-                                                  <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                                  <span className="text-[11px] text-slate-400">Location:</span>
-                                                  <select
-                                                    value={dev.location_id || ""}
-                                                    onChange={(e) => handleReassignDevice(dev.id, e.target.value)}
-                                                    className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-emerald-500"
-                                                  >
-                                                    <option value="">Unassigned (Organization Scope)</option>
-                                                    {locations.map((l) => (
-                                                      <option key={l.id} value={l.id}>
-                                                        {l.name} ({l.code}) {l.status === "ARCHIVED" ? "[Archived]" : ""}
-                                                      </option>
-                                                    ))}
-                                                  </select>
+                                                {/* Location Assignment & Authoritative POS Operating Mode */}
+                                                <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+                                                  <div className="flex items-center gap-1.5">
+                                                    <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                                    <span className="text-[11px] text-slate-400">Location:</span>
+                                                    <select
+                                                      value={dev.location_id || ""}
+                                                      onChange={(e) => handleReassignDevice(dev.id, e.target.value)}
+                                                      className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-0.5 focus:outline-none focus:border-emerald-500"
+                                                    >
+                                                      <option value="">Unassigned (Organization Scope)</option>
+                                                      {locations.map((l) => (
+                                                        <option key={l.id} value={l.id}>
+                                                          {l.name} ({l.code}) {l.status === "ARCHIVED" ? "[Archived]" : ""}
+                                                        </option>
+                                                      ))}
+                                                    </select>
+                                                  </div>
+
+                                                  <span className="text-slate-600 hidden sm:inline">•</span>
+
+                                                  <div className="flex items-center gap-1.5">
+                                                    <span className="text-[11px] text-slate-400">POS Mode:</span>
+                                                    <select
+                                                      value={dev.menu_mode || (assignedLoc?.pos_default_mode || "LOCAL")}
+                                                      onChange={(e) => handleUpdateDeviceMenuMode(dev.id, e.target.value)}
+                                                      className={`border text-xs rounded-lg px-2 py-0.5 focus:outline-none ${
+                                                        (dev.menu_mode || assignedLoc?.pos_default_mode) === "CLOUD"
+                                                          ? "bg-indigo-950/60 border-indigo-700/60 text-indigo-300 focus:border-indigo-500"
+                                                          : "bg-slate-800 border-slate-700 text-slate-200 focus:border-emerald-500"
+                                                      }`}
+                                                    >
+                                                      <option value="LOCAL">Local POS</option>
+                                                      <option value="CLOUD">Cloud Replica POS</option>
+                                                    </select>
+                                                    <span
+                                                      className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-semibold border ${
+                                                        (dev.menu_mode || assignedLoc?.pos_default_mode) === "CLOUD"
+                                                          ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
+                                                          : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                                      }`}
+                                                      title="Authoritative effective POS operating mode resolved against location deployment policy"
+                                                    >
+                                                      Effective: {dev.effective_menu_mode || dev.menu_mode || assignedLoc?.pos_default_mode || "LOCAL"}
+                                                    </span>
+                                                  </div>
                                                 </div>
                                               </div>
                                               <div className="flex items-center gap-2 flex-wrap">
@@ -2314,6 +2385,44 @@ export default function VexIAMApp() {
                       </select>
                     </div>
                   )}
+                </div>
+
+                {/* Location POS Mode Policy & Default Governance */}
+                <div className="bg-slate-800/40 border border-slate-700/60 p-3.5 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Laptop className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-semibold text-white">POS Operating Mode Policy & Defaults</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Deployment Policy</label>
+                      <select
+                        value={locPosModePolicy}
+                        onChange={(e) => setLocPosModePolicy(e.target.value as any)}
+                        className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="ANY_ALLOWED">Flexible (Local or Cloud Allowed)</option>
+                        <option value="LOCAL_ONLY">Strict Local (Force all terminals to Local)</option>
+                        <option value="CLOUD_ONLY">Strict Cloud (Force all terminals to Cloud)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Default Terminal Mode</label>
+                      <select
+                        value={locPosDefaultMode}
+                        onChange={(e) => setLocPosDefaultMode(e.target.value as any)}
+                        className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="LOCAL">Local POS</option>
+                        <option value="CLOUD">Cloud Replica POS</option>
+                      </select>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    The location serves as the policy authority. Terminals assigned to this location will inherit the default mode unless individually overridden within permitted bounds.
+                  </p>
                 </div>
 
                 {/* Cloud Sync Feature Flag for Store */}
