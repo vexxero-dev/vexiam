@@ -403,6 +403,7 @@ async def internal_verify_device(
         is_valid=(device.status == DeviceStatus.ACTIVE),
         sync_entitled=is_sync_entitled,
         sync_enabled=device.sync_enabled,
+        menu_mode=getattr(device, "menu_mode", "LOCAL") or "LOCAL",
     )
 
 
@@ -441,5 +442,23 @@ async def deactivate_device_sync(
     """
     return await CommercialAndLicensingService.deactivate_device_sync(
         db, device_id
+    )
+
+
+@router.post(
+    "/devices/{device_id}/menu-mode",
+    status_code=status.HTTP_200_OK,
+    summary="Configure authoritative POS menu management mode (LOCAL or CLOUD)",
+)
+async def set_device_menu_mode(
+    device_id: uuid.UUID,
+    mode: str = Query(..., description="Target menu mode: 'LOCAL' or 'CLOUD'"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Authoritative IAM PDP endpoint to configure whether a terminal manages menus locally or acts as a cloud replica.
+    """
+    return await CommercialAndLicensingService.set_device_menu_mode(
+        db, device_id, mode
     )
 

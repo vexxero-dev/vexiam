@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
 
         # Devices table columns
         await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS sync_enabled BOOLEAN NOT NULL DEFAULT FALSE;"))
+        await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS menu_mode VARCHAR(16) NOT NULL DEFAULT 'LOCAL';"))
     
     # Automatically seed official Vexxero ecosystem apps and default plans
     async with AsyncSessionLocal() as session:

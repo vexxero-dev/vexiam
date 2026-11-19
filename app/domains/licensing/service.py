@@ -744,6 +744,12 @@ class CommercialAndLicensingService:
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=settings.OFFLINE_GRACE_PERIOD_DAYS)
 
+        active_menu_mode = getattr(device, "menu_mode", "LOCAL") or "LOCAL"
+        mode_entitlement = "menu_management.mode:cloud" if active_menu_mode.upper() == "CLOUD" else "menu_management.mode:local"
+        device_entitlements = ["pos.core", "pos.offline", "pos.reporting", mode_entitlement]
+        if getattr(device, "sync_enabled", False):
+            device_entitlements.append("pos.sync")
+
         payload = OfflineLicensePayload(
             license_id=license_id,
             device_id=str(device.id),
@@ -757,6 +763,7 @@ class CommercialAndLicensingService:
             expires_at=int(expires_at.timestamp()),
             offline_grace_until=int(expires_at.timestamp()),
             grace_period_days=settings.OFFLINE_GRACE_PERIOD_DAYS,
+            entitlements=device_entitlements,
         )
 
         payload_dict = payload.model_dump()
@@ -1227,6 +1234,7 @@ class CommercialAndLicensingService:
             db, device.organization_id, device
         )
         sync_enabled = bool(device.sync_enabled)
+        active_menu_mode = getattr(device, "menu_mode", "LOCAL") or "LOCAL"
 
         # Fetch organization info
         stmt_org = select(Organization).where(Organization.id == device.organization_id)
@@ -1356,6 +1364,12 @@ class CommercialAndLicensingService:
 
             # Automatically renew / extend signed offline license window
             new_expires_at = now + timedelta(days=settings.OFFLINE_GRACE_PERIOD_DAYS)
+            active_menu_mode = getattr(device, "menu_mode", "LOCAL") or "LOCAL"
+            mode_entitlement = "menu_management.mode:cloud" if active_menu_mode.upper() == "CLOUD" else "menu_management.mode:local"
+            device_entitlements = ["pos.core", "pos.offline", "pos.reporting", mode_entitlement]
+            if sync_enabled:
+                device_entitlements.append("pos.sync")
+
             payload = OfflineLicensePayload(
                 license_id=str(target_license.id),
                 device_id=str(device.id),
@@ -1367,6 +1381,7 @@ class CommercialAndLicensingService:
                 issued_at=int(now.timestamp()),
                 expires_at=int(new_expires_at.timestamp()),
                 grace_period_days=settings.OFFLINE_GRACE_PERIOD_DAYS,
+                entitlements=device_entitlements,
             )
             payload_dict = payload.model_dump()
             payload_bytes = rfc8785.dumps(payload_dict)
@@ -1397,6 +1412,7 @@ class CommercialAndLicensingService:
                 "is_valid": True,
                 "sync_entitled": sync_entitled,
                 "sync_enabled": sync_enabled,
+                "menu_mode": active_menu_mode,
                 "message": "License renewed and active.",
                 "license": target_license,
             }
@@ -1412,6 +1428,7 @@ class CommercialAndLicensingService:
             "is_valid": True,
             "sync_entitled": sync_entitled,
             "sync_enabled": sync_enabled,
+            "menu_mode": active_menu_mode,
             "message": "Heartbeat recorded.",
             "license": None,
         }
@@ -1828,5 +1845,39 @@ class CommercialAndLicensingService:
             "device_id": str(device.id),
             "sync_enabled": False,
             "message": "POS cloud sync successfully disabled.",
+        }
+
+    @staticmethod
+    async def set_device_menu_mode(
+        db: AsyncSession,
+        device_id: uuid.UUID,
+        menu_mode: str,
+    ) -> dict:
+        """
+        Authoritatively configures the menu management mode (LOCAL or CLOUD) for a POS terminal device.
+        """
+        mode_upper = menu_mode.strip().upper()
+        if mode_upper not in ("LOCAL", "CLOUD"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid menu mode '{menu_mode}'. Must be either 'LOCAL' or 'CLOUD'.",
+            )
+
+        stmt = select(Device).where(Device.id == device_id)
+        res = await db.execute(stmt)
+        device = res.scalar_one_or_none()
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Device '{device_id}' not found.",
+            )
+
+        device.menu_mode = mode_upper
+        await db.commit()
+
+        return {
+            "device_id": str(device.id),
+            "menu_mode": mode_upper,
+            "message": f"POS terminal menu mode successfully set to {mode_upper} in VEX IAM.",
         }
 

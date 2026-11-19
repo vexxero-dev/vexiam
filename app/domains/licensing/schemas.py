@@ -201,6 +201,7 @@ class DeviceResponse(BaseModel):
     fingerprint: str
     status: DeviceStatus
     sync_enabled: bool = False
+    menu_mode: str = "LOCAL"
     last_heartbeat_at: Optional[datetime] = None
     created_at: datetime
     licenses: list[DeviceLicenseSummary] = Field(default_factory=list)
@@ -233,6 +234,7 @@ class DeviceHeartbeatResponse(BaseModel):
     is_valid: bool
     sync_entitled: bool = False
     sync_enabled: bool = False
+    menu_mode: str = "LOCAL"
     message: str
     license: Optional["LicenseResponse"] = None
 
@@ -250,6 +252,7 @@ class DeviceInternalVerificationResponse(BaseModel):
     is_valid: bool
     sync_entitled: bool = True
     sync_enabled: bool = False
+    menu_mode: str = "LOCAL"
 
 
 class PosSyncActivationRequest(BaseModel):
@@ -339,3 +342,4 @@ class OfflineLicensePayload(BaseModel):
     expires_at: int
     offline_grace_until: Optional[int] = None
     grace_period_days: int
+    entitlements: list[str] = Field(default_factory=list)
