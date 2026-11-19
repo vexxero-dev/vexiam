@@ -63,7 +63,7 @@ class Device(Base):
     last_sequence: Mapped[int] = mapped_column(default=0, nullable=False)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sync_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    menu_mode: Mapped[str] = mapped_column(String(16), default="LOCAL", nullable=False)  # LOCAL or CLOUD
+    menu_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)  # Terminal override: LOCAL, CLOUD, or None (inherits location default)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

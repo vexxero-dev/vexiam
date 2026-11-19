@@ -201,7 +201,8 @@ class DeviceResponse(BaseModel):
     fingerprint: str
     status: DeviceStatus
     sync_enabled: bool = False
-    menu_mode: str = "LOCAL"
+    menu_mode: Optional[str] = None  # Explicit terminal configuration (or None if inheriting location default)
+    effective_menu_mode: str = "LOCAL"  # Authoritatively resolved mode against location policy
     last_heartbeat_at: Optional[datetime] = None
     created_at: datetime
     licenses: list[DeviceLicenseSummary] = Field(default_factory=list)
@@ -234,7 +235,8 @@ class DeviceHeartbeatResponse(BaseModel):
     is_valid: bool
     sync_entitled: bool = False
     sync_enabled: bool = False
-    menu_mode: str = "LOCAL"
+    menu_mode: Optional[str] = None
+    effective_menu_mode: str = "LOCAL"
     message: str
     license: Optional["LicenseResponse"] = None
 
@@ -252,7 +254,8 @@ class DeviceInternalVerificationResponse(BaseModel):
     is_valid: bool
     sync_entitled: bool = True
     sync_enabled: bool = False
-    menu_mode: str = "LOCAL"
+    menu_mode: Optional[str] = None
+    effective_menu_mode: str = "LOCAL"
 
 
 class PosSyncActivationRequest(BaseModel):

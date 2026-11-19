@@ -55,7 +55,7 @@ async def test_menu_mode_governance_and_signed_license_entitlements(client: Asyn
     db.add(sub)
     await db.flush()
 
-    # 2. Register Device with default LOCAL menu mode
+    # 2. Register Device with default (None) terminal menu mode -> inherits location default (LOCAL)
     device_priv = Ed25519PrivateKey.generate()
     device_pub = device_priv.public_key()
     device_pub_b64 = base64.b64encode(device_pub.public_bytes_raw()).decode("utf-8")
@@ -68,24 +68,26 @@ async def test_menu_mode_governance_and_signed_license_entitlements(client: Asyn
         public_key=device_pub_b64,
         status=DeviceStatus.ACTIVE,
         sync_enabled=True,
+        menu_mode=None,
     )
     db.add(device)
     await db.commit()
     await db.refresh(device)
 
-    assert device.menu_mode == "LOCAL"
+    assert device.menu_mode is None
 
     from app.core.config import settings
     admin_headers = {"X-Platform-Admin-Key": settings.PLATFORM_ADMIN_KEY}
 
-    # 3. Query Device Verification -> menu_mode is LOCAL
+    # 3. Query Device Verification -> effective_menu_mode resolves to LOCAL from location default
     res = await client.get(
         f"/api/v1/devices/internal/verify?organization_id={org.id}&terminal_identifier={device.id}",
         headers=admin_headers,
     )
     assert res.status_code == 200
     data = res.json()
-    assert data["menu_mode"] == "LOCAL"
+    assert data["menu_mode"] is None
+    assert data["effective_menu_mode"] == "LOCAL"
 
     actor_id = uuid.uuid4()
     member = OrganizationMember(
@@ -112,12 +114,27 @@ async def test_menu_mode_governance_and_signed_license_entitlements(client: Asyn
     assert "menu_management.mode:local" in payload_dict["entitlements"]
     assert "menu_management.mode:cloud" not in payload_dict["entitlements"]
 
-    # 5. Authoritatively switch menu_mode to CLOUD via VEX IAM PDP endpoint
+    # 4. Enforce Location Policy to LOCAL_ONLY and attempt to switch terminal to CLOUD -> MUST FAIL (409)
+    from app.domains.locations.models import LocationPosModePolicy
+    loc.pos_mode_policy = LocationPosModePolicy.LOCAL_ONLY
+    await db.commit()
+
+    failed_switch = await client.post(
+        f"/api/v1/devices/{device.id}/menu-mode?mode=CLOUD"
+    )
+    assert failed_switch.status_code == 409
+    assert "LOCAL_ONLY" in failed_switch.json()["detail"]
+
+    # 5. Authoritatively relax Location Policy to ANY_ALLOWED, then switch terminal to CLOUD -> SUCCEEDS (200)
+    loc.pos_mode_policy = LocationPosModePolicy.ANY_ALLOWED
+    await db.commit()
+
     mode_switch_res = await client.post(
         f"/api/v1/devices/{device.id}/menu-mode?mode=CLOUD"
     )
     assert mode_switch_res.status_code == 200
     assert mode_switch_res.json()["menu_mode"] == "CLOUD"
+    assert mode_switch_res.json()["effective_menu_mode"] == "CLOUD"
 
     # 6. Verify heartbeat rolls license and delivers menu_management.mode:cloud
     hb_canonical = {
@@ -139,6 +156,7 @@ async def test_menu_mode_governance_and_signed_license_entitlements(client: Asyn
     assert hb_res.status_code == 200
     hb_data = hb_res.json()
     assert hb_data["menu_mode"] == "CLOUD"
+    assert hb_data["effective_menu_mode"] == "CLOUD"
 
     target_lic = await db.execute(select(DeviceLicense).where(DeviceLicense.device_id == device.id))
     lic_record = target_lic.scalars().first()

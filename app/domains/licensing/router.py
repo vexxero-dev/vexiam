@@ -392,6 +392,14 @@ async def internal_verify_device(
         db, organization_id, device
     )
 
+    loc = None
+    if device.location_id:
+        stmt_loc = select(Location).where(Location.id == device.location_id)
+        res_loc = await db.execute(stmt_loc)
+        loc = res_loc.scalar_one_or_none()
+
+    effective_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
+
     return DeviceInternalVerificationResponse(
         device_id=device.id,
         organization_id=device.organization_id,
@@ -403,7 +411,8 @@ async def internal_verify_device(
         is_valid=(device.status == DeviceStatus.ACTIVE),
         sync_entitled=is_sync_entitled,
         sync_enabled=device.sync_enabled,
-        menu_mode=getattr(device, "menu_mode", "LOCAL") or "LOCAL",
+        menu_mode=device.menu_mode,
+        effective_menu_mode=effective_mode,
     )
 
 

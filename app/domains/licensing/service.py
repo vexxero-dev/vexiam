@@ -22,7 +22,7 @@ from app.domains.licensing.models import (
 )
 from app.domains.applications.models import Application
 from app.domains.organizations.models import Organization, OrganizationMember, OrganizationRole
-from app.domains.locations.models import Location, LocationStatus, LocationApplication, LocationApplicationStatus
+from app.domains.locations.models import Location, LocationStatus, LocationApplication, LocationApplicationStatus, LocationPosModePolicy
 from app.domains.identity.sync_service import IdentitySyncService
 from app.domains.identity.sync_models import SyncEventType
 from app.domains.licensing.schemas import (
@@ -744,10 +744,20 @@ class CommercialAndLicensingService:
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=settings.OFFLINE_GRACE_PERIOD_DAYS)
 
-        active_menu_mode = getattr(device, "menu_mode", "LOCAL") or "LOCAL"
-        mode_entitlement = "menu_management.mode:cloud" if active_menu_mode.upper() == "CLOUD" else "menu_management.mode:local"
+        # Resolve location if assigned to evaluate location policy
+        loc = None
+        if device.location_id:
+            stmt_loc = select(Location).where(Location.id == device.location_id)
+            res_loc = await db.execute(stmt_loc)
+            loc = res_loc.scalar_one_or_none()
+
+        effective_menu_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
+        mode_entitlement = "menu_management.mode:cloud" if effective_menu_mode == "CLOUD" else "menu_management.mode:local"
         device_entitlements = ["pos.core", "pos.offline", "pos.reporting", mode_entitlement]
-        if getattr(device, "sync_enabled", False):
+        
+        # pos.sync is enabled only if device has sync_enabled AND location permits sync
+        loc_sync_allowed = getattr(loc, "pos_sync_allowed", True) if loc else True
+        if getattr(device, "sync_enabled", False) and loc_sync_allowed:
             device_entitlements.append("pos.sync")
 
         payload = OfflineLicensePayload(
@@ -1234,7 +1244,6 @@ class CommercialAndLicensingService:
             db, device.organization_id, device
         )
         sync_enabled = bool(device.sync_enabled)
-        active_menu_mode = getattr(device, "menu_mode", "LOCAL") or "LOCAL"
 
         # Fetch organization info
         stmt_org = select(Organization).where(Organization.id == device.organization_id)
@@ -1263,6 +1272,7 @@ class CommercialAndLicensingService:
             app = res_default.scalar_one_or_none()
 
         # Re-validate location status and application enablement if device is location-bound
+        loc = None
         if device.location_id:
             stmt_loc = select(Location).where(
                 and_(
@@ -1364,10 +1374,12 @@ class CommercialAndLicensingService:
 
             # Automatically renew / extend signed offline license window
             new_expires_at = now + timedelta(days=settings.OFFLINE_GRACE_PERIOD_DAYS)
-            active_menu_mode = getattr(device, "menu_mode", "LOCAL") or "LOCAL"
-            mode_entitlement = "menu_management.mode:cloud" if active_menu_mode.upper() == "CLOUD" else "menu_management.mode:local"
+            effective_menu_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
+            mode_entitlement = "menu_management.mode:cloud" if effective_menu_mode == "CLOUD" else "menu_management.mode:local"
             device_entitlements = ["pos.core", "pos.offline", "pos.reporting", mode_entitlement]
-            if sync_enabled:
+            
+            loc_sync_allowed = getattr(loc, "pos_sync_allowed", True) if loc else True
+            if sync_enabled and loc_sync_allowed:
                 device_entitlements.append("pos.sync")
 
             payload = OfflineLicensePayload(
@@ -1402,6 +1414,7 @@ class CommercialAndLicensingService:
             target_license.organization_name = org_name
             target_license.product_name = app.name if app else None
 
+            effective_menu_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
             return {
                 "device_id": device.id,
                 "device_status": device.status,
@@ -1412,12 +1425,14 @@ class CommercialAndLicensingService:
                 "is_valid": True,
                 "sync_entitled": sync_entitled,
                 "sync_enabled": sync_enabled,
-                "menu_mode": active_menu_mode,
+                "menu_mode": device.menu_mode,
+                "effective_menu_mode": effective_menu_mode,
                 "message": "License renewed and active.",
                 "license": target_license,
             }
 
         await db.commit()
+        effective_menu_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
         return {
             "device_id": device.id,
             "device_status": device.status,
@@ -1428,7 +1443,8 @@ class CommercialAndLicensingService:
             "is_valid": True,
             "sync_entitled": sync_entitled,
             "sync_enabled": sync_enabled,
-            "menu_mode": active_menu_mode,
+            "menu_mode": device.menu_mode,
+            "effective_menu_mode": effective_menu_mode,
             "message": "Heartbeat recorded.",
             "license": None,
         }
@@ -1872,12 +1888,58 @@ class CommercialAndLicensingService:
                 detail=f"Device '{device_id}' not found.",
             )
 
+        # Fetch location if bound to evaluate location POS policy
+        loc = None
+        if device.location_id:
+            stmt_loc = select(Location).where(Location.id == device.location_id)
+            res_loc = await db.execute(stmt_loc)
+            loc = res_loc.scalar_one_or_none()
+
+        effective_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
+
         device.menu_mode = mode_upper
+        # Validate target mode against location policy
+        effective_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
         await db.commit()
 
         return {
             "device_id": str(device.id),
             "menu_mode": mode_upper,
+            "effective_menu_mode": effective_mode,
             "message": f"POS terminal menu mode successfully set to {mode_upper} in VEX IAM.",
         }
+
+    @staticmethod
+    def resolve_effective_terminal_mode(device: Device, location: Location | None = None) -> str:
+        """
+        Authoritative PDP method to resolve effective POS mode for a terminal against location policy.
+        
+        Hierarchy:
+        - If location provides policy:
+          - Candidate mode is device.menu_mode IF set, ELSE location.pos_default_mode (defaulting to 'LOCAL')
+          - Candidate mode must be permitted by location.pos_mode_policy:
+            - LOCAL_ONLY: only LOCAL permitted. Candidate CLOUD raises 400.
+            - CLOUD_ONLY: only CLOUD permitted. Candidate LOCAL raises 400.
+            - ANY_ALLOWED: either is permitted.
+        - If unassigned to location:
+          - Candidate is device.menu_mode or 'LOCAL'.
+        """
+        if not location:
+            return (device.menu_mode or "LOCAL").upper()
+
+        candidate_mode = (device.menu_mode or location.pos_default_mode or "LOCAL").upper()
+        policy = getattr(location, "pos_mode_policy", LocationPosModePolicy.ANY_ALLOWED)
+
+        if policy == LocationPosModePolicy.LOCAL_ONLY and candidate_mode != "LOCAL":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Location '{location.name}' enforces LOCAL_ONLY POS deployment policy. Terminal cannot operate in CLOUD mode.",
+            )
+        if policy == LocationPosModePolicy.CLOUD_ONLY and candidate_mode != "CLOUD":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Location '{location.name}' enforces CLOUD_ONLY POS deployment policy. Terminal cannot operate in LOCAL mode.",
+            )
+
+        return candidate_mode
 
