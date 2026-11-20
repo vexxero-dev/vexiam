@@ -1,22 +1,27 @@
 "use client";
 
 import React, { useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronUp, Sparkles, X, ArrowRight } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Sparkles,
+  X,
+  ArrowRight
+} from "lucide-react";
 import { MainNavSection } from "@/types";
 
 interface SetupChecklistProps {
   hasOrg: boolean;
-  hasLocation: boolean;
-  hasTerminal: boolean;
   hasSubscription: boolean;
+  hasMembers: boolean;
   onNavigateSection: (section: MainNavSection) => void;
 }
 
 export function SetupChecklist({
   hasOrg,
-  hasLocation,
-  hasTerminal,
   hasSubscription,
+  hasMembers,
   onNavigateSection,
 }: SetupChecklistProps) {
   const [collapsed, setCollapsed] = useState(false);
@@ -28,35 +33,27 @@ export function SetupChecklist({
       label: "Establish Business Entity",
       completed: hasOrg,
       action: () => onNavigateSection("business_entities"),
-      desc: "Register legal entity name and identifier",
+      desc: "Register company legal name & entity ID",
     },
     {
       id: "sub",
-      label: "Activate Plan Subscription",
+      label: "Subscribe to Ecosystem App",
       completed: hasSubscription,
-      action: () => onNavigateSection("org_subscriptions"),
-      desc: "Assign user seats & terminal quotas",
+      action: () => onNavigateSection("subscriptions"),
+      desc: "Enable VEX POS or FinCloud entitlement",
     },
     {
-      id: "loc",
-      label: "Create Store Location",
-      completed: hasLocation,
-      action: () => onNavigateSection("org_locations"),
-      desc: "Establish physical branches & POS sync policy",
-    },
-    {
-      id: "term",
-      label: "Connect POS Terminals",
-      completed: hasTerminal,
-      action: () => onNavigateSection("org_terminals"),
-      desc: "Register hardware fingerprints & offline licenses",
+      id: "members",
+      label: "Invite Organization Members",
+      completed: hasMembers,
+      action: () => onNavigateSection("org_members"),
+      desc: "Grant access seats & workspace roles",
     },
   ];
 
   const completedCount = steps.filter((s) => s.completed).length;
   const isAllComplete = completedCount === steps.length;
 
-  // If dismissed or everything is complete, render minimal banner or nothing
   if (dismissed) return null;
 
   return (
@@ -69,19 +66,19 @@ export function SetupChecklist({
           <div>
             <div className="flex items-center gap-2">
               <h4 className="text-xs font-bold text-white tracking-wide">
-                Organization Setup Checklist
+                VEX IAM Organization Setup
               </h4>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-indigo-300 border border-slate-700">
                 {completedCount} of {steps.length} completed
               </span>
               {isAllComplete && (
                 <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                  Fully Configured
+                  Ready for Ecosystem Launch
                 </span>
               )}
             </div>
             <p className="text-[11px] text-slate-400">
-              Complete these steps to establish terminal synchronization with VEX POS Cloud.
+              Establish central business entities and application entitlements for your organization.
             </p>
           </div>
         </div>
@@ -107,7 +104,7 @@ export function SetupChecklist({
       </div>
 
       {!collapsed && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-3 border-t border-slate-800/80">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 pt-3 border-t border-slate-800">
           {steps.map((step, idx) => (
             <div
               key={step.id}

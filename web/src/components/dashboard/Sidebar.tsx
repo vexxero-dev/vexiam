@@ -5,10 +5,8 @@ import {
   LayoutDashboard,
   ShieldCheck,
   Building2,
-  Layers,
   Users,
-  Store,
-  Laptop,
+  Layers,
   CreditCard,
   Lock,
   FileText,
@@ -16,8 +14,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Sparkles,
-  CheckCircle2
 } from "lucide-react";
 import { Organization, MainNavSection } from "@/types";
 
@@ -44,12 +40,12 @@ export function Sidebar({
 }: SidebarProps) {
   return (
     <aside
-      className={`bg-slate-950 border-r border-slate-800/80 text-slate-200 flex flex-col shrink-0 transition-all duration-300 select-none ${
+      className={`bg-slate-950 border-r border-slate-800 text-slate-200 flex flex-col shrink-0 transition-all duration-300 select-none ${
         collapsed ? "w-16" : "w-64"
       }`}
     >
       {/* Brand Header */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800/80">
+      <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
         <div className="flex items-center gap-3 overflow-hidden">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-700 to-purple-600 flex items-center justify-center font-black text-white shadow-lg shadow-indigo-600/30 shrink-0">
             V
@@ -59,7 +55,7 @@ export function Sidebar({
               <div className="font-bold text-sm tracking-wide text-white flex items-center gap-1.5">
                 VEX IAM
                 <span className="text-[9px] uppercase font-mono font-bold px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                  Cloud
+                  Global
                 </span>
               </div>
               <div className="text-[11px] text-slate-400 truncate">Identity & Orgs</div>
@@ -76,12 +72,12 @@ export function Sidebar({
       </div>
 
       {/* Organization / Workspace Switcher */}
-      <div className="p-3 border-b border-slate-800/80">
+      <div className="p-3 border-b border-slate-800">
         {!collapsed ? (
           <div>
             <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
               <span className="flex items-center gap-1">
-                <Building2 className="w-3 h-3 text-indigo-400" /> Current Entity
+                <Building2 className="w-3 h-3 text-indigo-400" /> Active Entity
               </span>
               <button
                 type="button"
@@ -111,12 +107,12 @@ export function Sidebar({
               </div>
             ) : (
               <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800 text-[11px] text-slate-400 text-center">
-                No organizations yet
+                No organizations registered
               </div>
             )}
           </div>
         ) : (
-          <div className="flex justify-center" title={selectedOrg ? `Active: ${selectedOrg.name}` : "Workspace"}>
+          <div className="flex justify-center" title={selectedOrg ? `Active: ${selectedOrg.name}` : "Entity"}>
             <div className="w-9 h-9 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-xs font-bold text-indigo-400">
               {selectedOrg?.name?.slice(0, 2).toUpperCase() || <Building2 className="w-4 h-4" />}
             </div>
@@ -124,13 +120,13 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Nav Items */}
+      {/* Nav Items (Strictly Architecture-Aligned 9 Navigation Items) */}
       <nav className="flex-1 px-2.5 py-4 space-y-6 overflow-y-auto">
-        {/* Main Section */}
+        {/* Section 1: Central Identity & Organizations */}
         <div>
           {!collapsed && (
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2.5 mb-1.5">
-              Platform Domains
+              Core Identity
             </div>
           )}
           <div className="space-y-1">
@@ -158,63 +154,44 @@ export function Sidebar({
             />
             <NavItem
               collapsed={collapsed}
-              active={activeSection === "app_catalog"}
-              onClick={() => onSelectSection("app_catalog")}
-              icon={Layers}
-              label="Application Catalog"
+              active={activeSection === "org_members"}
+              onClick={() => onSelectSection("org_members")}
+              icon={Users}
+              label="Organization Members"
             />
           </div>
         </div>
 
-        {/* Organization Management (Contextual) */}
+        {/* Section 2: Ecosystem & Entitlements */}
         <div>
           {!collapsed && (
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2.5 mb-1.5 flex items-center justify-between">
-              <span>Organization Workspace</span>
-              {selectedOrg && (
-                <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-1 rounded font-mono">
-                  ACTIVE
-                </span>
-              )}
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2.5 mb-1.5">
+              Ecosystem & Billing
             </div>
           )}
           <div className="space-y-1">
             <NavItem
               collapsed={collapsed}
-              active={activeSection === "org_team"}
-              onClick={() => onSelectSection("org_team")}
-              icon={Users}
-              label="Team & Users"
+              active={activeSection === "app_catalog"}
+              onClick={() => onSelectSection("app_catalog")}
+              icon={Layers}
+              label="Application Catalog"
             />
             <NavItem
               collapsed={collapsed}
-              active={activeSection === "org_locations"}
-              onClick={() => onSelectSection("org_locations")}
-              icon={Store}
-              label="Store Locations"
-            />
-            <NavItem
-              collapsed={collapsed}
-              active={activeSection === "org_terminals"}
-              onClick={() => onSelectSection("org_terminals")}
-              icon={Laptop}
-              label="Hardware Terminals"
-            />
-            <NavItem
-              collapsed={collapsed}
-              active={activeSection === "org_subscriptions"}
-              onClick={() => onSelectSection("org_subscriptions")}
+              active={activeSection === "subscriptions"}
+              onClick={() => onSelectSection("subscriptions")}
               icon={CreditCard}
-              label="Subscriptions & Quotas"
+              label="Subscriptions & Entitlements"
             />
           </div>
         </div>
 
-        {/* Administration */}
+        {/* Section 3: Platform Governance */}
         <div>
           {!collapsed && (
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2.5 mb-1.5">
-              Administration
+              Governance
             </div>
           )}
           <div className="space-y-1">
@@ -237,20 +214,20 @@ export function Sidebar({
               active={activeSection === "settings"}
               onClick={() => onSelectSection("settings")}
               icon={Settings}
-              label="Settings"
+              label="Platform Settings"
             />
           </div>
         </div>
       </nav>
 
-      {/* Footer Info / Version */}
+      {/* Footer Info */}
       {!collapsed && (
-        <div className="p-3 border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
+        <div className="p-3 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
           <span className="flex items-center gap-1 font-mono">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            IAM v2.4 SaaS
+            VEX IAM Platform
           </span>
-          <span className="font-mono text-[10px] text-slate-500">OIDC / Ed25519</span>
+          <span className="font-mono text-[10px] text-slate-500">OAuth 2.1 / OIDC</span>
         </div>
       )}
     </aside>

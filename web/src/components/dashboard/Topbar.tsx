@@ -4,13 +4,9 @@ import React, { useState } from "react";
 import {
   ChevronRight,
   LogOut,
-  Bell,
   User as UserIcon,
   ShieldCheck,
   Building2,
-  Check,
-  Search,
-  Sparkles,
   Sun,
   Moon,
 } from "lucide-react";
@@ -26,17 +22,15 @@ interface TopbarProps {
 }
 
 const sectionTitles: Record<MainNavSection, { title: string; category: string }> = {
-  overview: { title: "Executive Overview", category: "Dashboard" },
-  identity: { title: "Individual Identity", category: "Global Profile" },
-  business_entities: { title: "Business Entities", category: "Directory" },
-  app_catalog: { title: "Application Catalog", category: "Ecosystem" },
-  org_team: { title: "Team & User Pool", category: "Organization Workspace" },
-  org_locations: { title: "Store Locations", category: "Organization Workspace" },
-  org_terminals: { title: "Hardware Terminals", category: "Organization Workspace" },
-  org_subscriptions: { title: "Subscriptions & Quotas", category: "Organization Workspace" },
-  security: { title: "Security & Access", category: "Administration" },
-  audit: { title: "Audit Logs", category: "Administration" },
-  settings: { title: "Settings & Config", category: "Administration" },
+  overview: { title: "Executive Overview", category: "IAM Workspace" },
+  identity: { title: "Individual Identity", category: "Core Identity" },
+  business_entities: { title: "Business Entities Directory", category: "Core Identity" },
+  org_members: { title: "Organization Members", category: "Core Identity" },
+  app_catalog: { title: "Application Catalog", category: "Ecosystem & Billing" },
+  subscriptions: { title: "Subscriptions & Entitlements", category: "Ecosystem & Billing" },
+  security: { title: "Security & Access", category: "Platform Governance" },
+  audit: { title: "Audit & Security Ledger", category: "Platform Governance" },
+  settings: { title: "Platform Settings", category: "Platform Governance" },
 };
 
 export function Topbar({
@@ -51,7 +45,7 @@ export function Topbar({
   const currentMeta = sectionTitles[activeSection] || { title: "Workspace", category: "IAM" };
 
   return (
-    <header className="h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80 px-6 flex items-center justify-between shrink-0 sticky top-0 z-30 transition-colors">
+    <header className="h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 px-6 flex items-center justify-between shrink-0 sticky top-0 z-30 transition-colors">
       {/* Breadcrumb Navigation */}
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs">
         <span className="text-slate-400 font-medium">VEX IAM</span>
@@ -66,11 +60,11 @@ export function Topbar({
           {currentMeta.title}
         </span>
 
-        {/* Context Org Pill if applicable */}
-        {selectedOrg && activeSection.startsWith("org_") && (
+        {/* Active Organization Context Pill */}
+        {selectedOrg && (
           <>
             <span className="text-slate-600 mx-1">•</span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[11px] font-medium">
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[11px] font-medium">
               <Building2 className="w-3 h-3 text-indigo-400" />
               {selectedOrg.name}
             </span>
@@ -119,7 +113,7 @@ export function Topbar({
               className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-100"
               onMouseLeave={() => setUserDropdownOpen(false)}
             >
-              <div className="px-3 py-2 border-b border-slate-800/80 mb-1">
+              <div className="px-3 py-2 border-b border-slate-800 mb-1">
                 <p className="text-[11px] font-bold text-white">Signed in as</p>
                 <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
                 <div className="mt-1 flex items-center gap-1.5">
@@ -170,7 +164,7 @@ export function Topbar({
                 <span>Account Settings</span>
               </button>
 
-              <div className="border-t border-slate-800/80 my-1"></div>
+              <div className="border-t border-slate-800 my-1"></div>
 
               <button
                 onClick={() => {

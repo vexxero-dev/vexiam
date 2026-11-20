@@ -14,19 +14,17 @@ import {
   Sparkles,
   ArrowRight
 } from "lucide-react";
-import { Subscription, Plan, Application, ApplicationAssignment, Device } from "@/types";
+import { Subscription, Plan, Application, ApplicationAssignment } from "@/types";
 
 interface SubscriptionManagementViewProps {
   subscriptions: Subscription[];
   plans: Plan[];
   applications: Application[];
   assignments: ApplicationAssignment[];
-  devices: Device[];
   subscribingPlanId: string | null;
   onBuySubscription: (planId: string) => void;
   onOpenAssignModal: (appId: string, appName: string) => void;
   onRevokeAssignment: (assignmentId: string, memberLabel: string) => void;
-  onNavigateToTerminals: () => void;
 }
 
 export function SubscriptionManagementView({
@@ -34,12 +32,10 @@ export function SubscriptionManagementView({
   plans,
   applications,
   assignments,
-  devices,
   subscribingPlanId,
   onBuySubscription,
   onOpenAssignModal,
   onRevokeAssignment,
-  onNavigateToTerminals,
 }: SubscriptionManagementViewProps) {
   const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
 
@@ -53,18 +49,18 @@ export function SubscriptionManagementView({
             <span>Subscriptions, Entitlements & Seat Quotas</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Commercial enterprise software subscriptions, operator seat allowances, and authorized hardware device quotas.
+            Commercial enterprise software packages, operator seat allowances, and authorized device quotas across the VEX ecosystem.
           </p>
         </div>
       </div>
 
       {/* Active Subscriptions List */}
       {subscriptions.length === 0 ? (
-        <div className="p-12 bg-slate-900/40 border border-slate-800 rounded-2xl text-center">
+        <div className="p-12 bg-slate-900 border border-slate-800 rounded-2xl text-center shadow-sm">
           <CreditCard className="w-10 h-10 text-slate-600 mx-auto mb-3" />
           <p className="text-sm text-slate-300 font-medium">No active subscriptions for this organization.</p>
           <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-4">
-            Select an ecosystem plan below to activate commercial POS terminal licensing and operator seats.
+            Select an ecosystem plan below to activate commercial software entitlements and operator seat quotas.
           </p>
         </div>
       ) : (
@@ -77,15 +73,7 @@ export function SubscriptionManagementView({
             const usedSeats = appAssignments.length;
             const totalSeats = sub.plan?.user_seats || 0;
             const isSeatFull = totalSeats > 0 && usedSeats >= totalSeats;
-
-            const appActiveTerminals = devices.filter((dev) =>
-              dev.licenses?.some(
-                (lic) => lic.status === "ACTIVE" && (!appId || lic.application_id === appId)
-              )
-            );
-            const usedTerminals = appActiveTerminals.length;
             const totalTerminals = sub.plan?.device_seats || 0;
-            const isTerminalQuotaReached = totalTerminals > 0 && usedTerminals >= totalTerminals;
             const isExpanded = expandedSubId === sub.id;
 
             return (
@@ -105,9 +93,8 @@ export function SubscriptionManagementView({
                       <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
                         {sub.status}
                       </span>
-                      <span className="text-[11px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
-                        <Laptop className="w-3 h-3 text-cyan-400" />
-                        <span>{appActiveTerminals.length} / {totalTerminals} Terminals</span>
+                      <span className="text-[11px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-2.5 py-0.5 rounded-full font-medium">
+                        Quota: {totalTerminals} Terminals Entitled
                       </span>
                     </div>
                     <h4 className="text-base font-bold text-white">{sub.plan?.name}</h4>
@@ -126,71 +113,36 @@ export function SubscriptionManagementView({
 
                 {isExpanded && (
                   <div className="p-6 border-t border-slate-800 bg-slate-950/40 space-y-6">
-                    {/* Quota Progress Bars */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* User Seat Bar */}
-                      <div className="p-4 bg-slate-900 rounded-xl border border-slate-800">
-                        <div className="flex items-center justify-between text-xs mb-1.5">
-                          <span className="text-slate-300 font-medium">Assigned User Seats:</span>
-                          <span className={`font-mono font-bold ${isSeatFull ? "text-amber-400" : "text-indigo-400"}`}>
-                            {usedSeats} / {totalSeats} seats used
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all ${isSeatFull ? "bg-amber-400" : "bg-indigo-500"}`}
-                            style={{
-                              width: `${Math.min(100, totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0)}%`,
-                            }}
-                          />
-                        </div>
-                        <div className="flex items-center justify-end text-[11px] text-slate-400 mt-3">
-                          {appId && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onOpenAssignModal(appId, sub.plan?.name || "Application");
-                              }}
-                              disabled={isSeatFull}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-semibold disabled:opacity-50 transition"
-                            >
-                              <UserPlus className="w-3.5 h-3.5" />
-                              <span>{isSeatFull ? "Seats Full" : "Assign User Seat"}</span>
-                            </button>
-                          )}
-                        </div>
+                    {/* Quota Progress Bar */}
+                    <div className="p-4 bg-slate-900 rounded-xl border border-slate-800">
+                      <div className="flex items-center justify-between text-xs mb-1.5">
+                        <span className="text-slate-300 font-medium">Assigned User Seats:</span>
+                        <span className={`font-mono font-bold ${isSeatFull ? "text-amber-400" : "text-indigo-400"}`}>
+                          {usedSeats} / {totalSeats} seats used
+                        </span>
                       </div>
-
-                      {/* Terminal Device Bar */}
-                      <div className="p-4 bg-slate-900 rounded-xl border border-slate-800">
-                        <div className="flex items-center justify-between text-xs mb-1.5">
-                          <span className="text-slate-300 font-medium flex items-center gap-1">
-                            <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                            <span>Licensed Hardware Terminals:</span>
-                          </span>
-                          <span className={`font-mono font-bold ${isTerminalQuotaReached ? "text-amber-400" : "text-cyan-400"}`}>
-                            {usedTerminals} / {totalTerminals} devices
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all ${isTerminalQuotaReached ? "bg-amber-400" : "bg-cyan-500"}`}
-                            style={{
-                              width: `${Math.min(100, totalTerminals > 0 ? (usedTerminals / totalTerminals) * 100 : 0)}%`,
-                            }}
-                          />
-                        </div>
-                        <div className="text-[11px] text-slate-400 mt-3 flex justify-between items-center">
-                          <span>Allowance: <strong>{totalTerminals} terminals max</strong></span>
+                      <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all ${isSeatFull ? "bg-amber-400" : "bg-indigo-500"}`}
+                          style={{
+                            width: `${Math.min(100, totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0)}%`,
+                          }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-end text-[11px] text-slate-400 mt-3">
+                        {appId && (
                           <button
-                            type="button"
-                            onClick={onNavigateToTerminals}
-                            className="text-xs font-semibold text-cyan-400 hover:underline flex items-center gap-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenAssignModal(appId, sub.plan?.name || "Application");
+                            }}
+                            disabled={isSeatFull}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-semibold disabled:opacity-50 transition"
                           >
-                            <span>Manage Devices</span>
-                            <ArrowRight className="w-3 h-3" />
+                            <UserPlus className="w-3.5 h-3.5" />
+                            <span>{isSeatFull ? "Seats Full" : "Assign User Seat"}</span>
                           </button>
-                        </div>
+                        )}
                       </div>
                     </div>
 
@@ -201,7 +153,7 @@ export function SubscriptionManagementView({
                       </h5>
                       {appAssignments.length === 0 ? (
                         <p className="text-xs text-slate-500 italic py-2">
-                          No members assigned yet. Users in the organization cannot sign in until granted a seat.
+                          No members assigned yet. Users in the organization cannot sign into applications until granted a seat.
                         </p>
                       ) : (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
@@ -252,13 +204,13 @@ export function SubscriptionManagementView({
       )}
 
       {/* Available Plans to Subscribe */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
         <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-indigo-400" />
           <span>Subscribe to Additional Ecosystem Packages</span>
         </h3>
         <p className="text-xs text-slate-400 mb-4">
-          Add additional licenses or upgrade device quotas for your business entity.
+          Add additional commercial software licenses or upgrade user seat quotas for your business entity.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -275,7 +227,7 @@ export function SubscriptionManagementView({
                 <p className="text-[11px] text-slate-400 my-1">{p.description}</p>
                 <div className="text-[11px] text-slate-300 space-y-0.5 my-3">
                   <div>• <strong>{p.user_seats}</strong> User Seats</div>
-                  <div>• <strong>{p.device_seats}</strong> POS Hardware Terminals</div>
+                  <div>• <strong>{p.device_seats}</strong> Authorized Terminals Allowance</div>
                 </div>
               </div>
               <button

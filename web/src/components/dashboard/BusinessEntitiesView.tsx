@@ -9,11 +9,9 @@ import {
   Copy,
   ChevronRight,
   ShieldCheck,
-  Store,
-  Users,
-  Laptop
+  Users
 } from "lucide-react";
-import { Organization, OrgLocation, Device, Member } from "@/types";
+import { Organization, Member } from "@/types";
 
 interface BusinessEntitiesViewProps {
   organizations: Organization[];
@@ -23,8 +21,6 @@ interface BusinessEntitiesViewProps {
   onCopy: (text: string, id: string) => void;
   onOpenCreateOrg: () => void;
   onNavigateToSection: (section: any) => void;
-  locations: OrgLocation[];
-  devices: Device[];
   members: Member[];
 }
 
@@ -36,8 +32,6 @@ export function BusinessEntitiesView({
   onCopy,
   onOpenCreateOrg,
   onNavigateToSection,
-  locations,
-  devices,
   members,
 }: BusinessEntitiesViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -116,8 +110,7 @@ export function BusinessEntitiesView({
                   <th className="py-3 px-4">Business Name & UUID</th>
                   <th className="py-3 px-4">Registration Number</th>
                   <th className="py-3 px-4">Account Status</th>
-                  <th className="py-3 px-4">Store Locations</th>
-                  <th className="py-3 px-4">Terminals</th>
+                  <th className="py-3 px-4">Members</th>
                   <th className="py-3 px-4 text-right">Workspace Action</th>
                 </tr>
               </thead>
@@ -181,15 +174,8 @@ export function BusinessEntitiesView({
 
                       <td className="py-3.5 px-4 text-slate-300">
                         <span className="inline-flex items-center gap-1 font-mono text-xs">
-                          <Store className="w-3.5 h-3.5 text-slate-500" />
-                          <span>{isSelected ? locations.length : "—"}</span>
-                        </span>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-slate-300">
-                        <span className="inline-flex items-center gap-1 font-mono text-xs">
-                          <Laptop className="w-3.5 h-3.5 text-slate-500" />
-                          <span>{isSelected ? devices.length : "—"}</span>
+                          <Users className="w-3.5 h-3.5 text-slate-500" />
+                          <span>{isSelected ? members.length : "—"}</span>
                         </span>
                       </td>
 
@@ -199,7 +185,7 @@ export function BusinessEntitiesView({
                           onClick={(e) => {
                             e.stopPropagation();
                             onSelectOrg(org);
-                            onNavigateToSection("org_locations");
+                            onNavigateToSection("overview");
                           }}
                           className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300"
                         >

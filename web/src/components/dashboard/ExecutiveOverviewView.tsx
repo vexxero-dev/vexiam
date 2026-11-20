@@ -3,43 +3,38 @@
 import React from "react";
 import {
   Users,
-  Store,
-  Laptop,
   CreditCard,
   Building2,
   ArrowRight,
+  Layers,
   ShieldCheck,
   Activity,
   CheckCircle2,
   PlusCircle,
   ExternalLink
 } from "lucide-react";
-import { Organization, Member, OrgLocation, Device, Subscription, MainNavSection } from "@/types";
+import { Organization, Member, Subscription, Application, MainNavSection } from "@/types";
 
 interface ExecutiveOverviewViewProps {
   selectedOrg: Organization | null;
   members: Member[];
-  locations: OrgLocation[];
-  devices: Device[];
   subscriptions: Subscription[];
+  applications: Application[];
   onNavigateSection: (section: MainNavSection) => void;
-  onOpenCreateLocation: () => void;
-  formatHeartbeatTime: (timestamp?: string | null) => string;
+  onOpenCreateOrg: () => void;
 }
 
 export function ExecutiveOverviewView({
   selectedOrg,
   members,
-  locations,
-  devices,
   subscriptions,
+  applications,
   onNavigateSection,
-  onOpenCreateLocation,
-  formatHeartbeatTime,
+  onOpenCreateOrg,
 }: ExecutiveOverviewViewProps) {
-  const activeTerminalsCount = devices.filter((d) => d.status === "ACTIVE").length;
-  const activeLocationsCount = locations.filter((l) => l.status === "ACTIVE").length;
   const activeSubscriptionsCount = subscriptions.filter((s) => s.status === "ACTIVE").length;
+  const ownerMembersCount = members.filter((m) => m.role === "OWNER").length;
+  const adminMembersCount = members.filter((m) => m.role === "ADMIN").length;
 
   return (
     <div className="space-y-6">
@@ -48,34 +43,34 @@ export function ExecutiveOverviewView({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-              WORKSPACE
+              CENTRAL IAM WORKSPACE
             </span>
             <span className="text-xs text-slate-400">
-              {selectedOrg?.registration_number ? `Reg # ${selectedOrg.registration_number}` : "Central Business Workspace"}
+              {selectedOrg?.registration_number ? `Reg # ${selectedOrg.registration_number}` : "Enterprise Organization"}
             </span>
           </div>
           <h2 className="text-2xl font-bold text-white tracking-tight">
-            {selectedOrg ? selectedOrg.name : "Select a Business Entity"}
+            {selectedOrg ? selectedOrg.name : "Select or Establish a Business Entity"}
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Federated access control, multi-location POS deployment, and cryptographic license orchestration.
+          <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+            Centralized federated authentication, user pool memberships, and application subscriptions across the VEX software ecosystem.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => onNavigateSection("org_locations")}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"
+            onClick={() => onNavigateSection("org_members")}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 border border-slate-700"
           >
-            <Store className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Manage Locations</span>
+            <Users className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Manage Members</span>
           </button>
           <button
-            onClick={() => onNavigateSection("org_terminals")}
-            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm shadow-indigo-600/30"
+            onClick={() => onNavigateSection("subscriptions")}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm shadow-indigo-600/30"
           >
-            <Laptop className="w-3.5 h-3.5" />
-            <span>Terminals</span>
+            <CreditCard className="w-3.5 h-3.5" />
+            <span>View Subscriptions</span>
           </button>
         </div>
       </div>
@@ -83,102 +78,123 @@ export function ExecutiveOverviewView({
       {/* Metric Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          title="Total User Pool"
+          title="Organization Members"
           value={String(members.length)}
-          subtitle="Assigned members"
+          subtitle={`${ownerMembersCount} Owner, ${adminMembersCount} Admins`}
           icon={Users}
           iconColor="text-indigo-400"
-          onClick={() => onNavigateSection("org_team")}
-        />
-        <MetricCard
-          title="Store Locations"
-          value={String(locations.length)}
-          subtitle={`${activeLocationsCount} active branches`}
-          icon={Store}
-          iconColor="text-emerald-400"
-          onClick={() => onNavigateSection("org_locations")}
-        />
-        <MetricCard
-          title="Hardware Terminals"
-          value={String(devices.length)}
-          subtitle={`${activeTerminalsCount} online replicas`}
-          icon={Laptop}
-          iconColor="text-cyan-400"
-          onClick={() => onNavigateSection("org_terminals")}
+          onClick={() => onNavigateSection("org_members")}
         />
         <MetricCard
           title="Active Subscriptions"
-          value={String(subscriptions.length)}
-          subtitle={`${activeSubscriptionsCount} plan entitlements`}
+          value={String(activeSubscriptionsCount)}
+          subtitle="Commercial entitlements"
           icon={CreditCard}
+          iconColor="text-emerald-400"
+          onClick={() => onNavigateSection("subscriptions")}
+        />
+        <MetricCard
+          title="Application Catalog"
+          value={String(applications.length)}
+          subtitle="Verified ecosystem apps"
+          icon={Layers}
+          iconColor="text-cyan-400"
+          onClick={() => onNavigateSection("app_catalog")}
+        />
+        <MetricCard
+          title="IAM Authority Status"
+          value="OIDC 2.1"
+          subtitle="Ed25519 Token Signing"
+          icon={ShieldCheck}
           iconColor="text-purple-400"
-          onClick={() => onNavigateSection("org_subscriptions")}
+          onClick={() => onNavigateSection("security")}
         />
       </div>
 
-      {/* Two Column Section: Quick Recent Activity / Terminal Status & Location Overview */}
+      {/* Two Column Summary: Subscribed Applications & Member Pool Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Terminals Online Status */}
+        {/* Subscribed Applications with Direct Launch Link */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Laptop className="w-4 h-4 text-cyan-400" />
-                <span>Recent Terminal Heartbeats</span>
+                <Layers className="w-4 h-4 text-indigo-400" />
+                <span>Entitled Ecosystem Applications</span>
               </h3>
-              <p className="text-xs text-slate-400">Live POS terminals reporting to VEX Cloud</p>
+              <p className="text-xs text-slate-400">Applications authorized for this business entity</p>
             </div>
             <button
-              onClick={() => onNavigateSection("org_terminals")}
+              onClick={() => onNavigateSection("app_catalog")}
               className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
             >
-              <span>View All</span>
+              <span>Catalog</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {devices.length === 0 ? (
+          {subscriptions.length === 0 ? (
             <div className="p-8 bg-slate-950 rounded-xl border border-slate-800 text-center">
-              <Laptop className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-              <p className="text-xs text-slate-400">No terminals registered yet.</p>
+              <Layers className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+              <p className="text-xs text-slate-400 mb-2">No active subscriptions registered yet.</p>
+              <button
+                onClick={() => onNavigateSection("subscriptions")}
+                className="text-xs font-semibold text-indigo-400 hover:underline"
+              >
+                Browse Subscriptions →
+              </button>
             </div>
           ) : (
-            <div className="space-y-2.5">
-              {devices.slice(0, 5).map((dev) => (
-                <div
-                  key={dev.id}
-                  className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+            <div className="space-y-3">
+              {subscriptions.slice(0, 4).map((sub) => {
+                const appObj = applications.find((a) => a.id === sub.plan?.application_id);
+                const isPos = appObj?.code.toLowerCase().includes("pos");
+                const consoleUrl = isPos ? "https://pos-console.vexxero.com" : "#";
+
+                return (
+                  <div
+                    key={sub.id}
+                    className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs hover:border-slate-700 transition"
+                  >
                     <div>
-                      <div className="font-semibold text-white">{dev.name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">HW: {dev.fingerprint}</div>
+                      <div className="font-bold text-white flex items-center gap-2">
+                        <span>{appObj?.name || sub.plan?.name}</span>
+                        <span className="font-mono text-[9px] text-indigo-400 bg-indigo-500/10 px-1.5 py-0.2 rounded border border-indigo-500/20">
+                          {sub.plan?.code}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        Capacity: {sub.plan?.user_seats} User Seats • {sub.plan?.device_seats} Device Limit
+                      </div>
                     </div>
+
+                    <a
+                      href={consoleUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-semibold transition"
+                    >
+                      <span>Launch</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
                   </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-400">
-                      Heartbeat: <strong>{formatHeartbeatTime(dev.last_heartbeat_at)}</strong>
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Operating Branches Quick List */}
+        {/* Member Directory Snapshot */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Store className="w-4 h-4 text-emerald-400" />
-                <span>Operational Store Branches</span>
+                <Users className="w-4 h-4 text-emerald-400" />
+                <span>Organization Member Pool</span>
               </h3>
-              <p className="text-xs text-slate-400">Physical branches configured for POS sync</p>
+              <p className="text-xs text-slate-400">Personnel with workspace privileges</p>
             </div>
             <button
-              onClick={() => onNavigateSection("org_locations")}
+              onClick={() => onNavigateSection("org_members")}
               className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
             >
               <span>View All</span>
@@ -186,42 +202,42 @@ export function ExecutiveOverviewView({
             </button>
           </div>
 
-          {locations.length === 0 ? (
+          {members.length === 0 ? (
             <div className="p-8 bg-slate-950 rounded-xl border border-slate-800 text-center">
-              <Store className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-              <p className="text-xs text-slate-400 mb-3">No store branches created yet.</p>
-              <button
-                onClick={onOpenCreateLocation}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                <span>Add Branch</span>
-              </button>
+              <Users className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+              <p className="text-xs text-slate-400">No members in user pool yet.</p>
             </div>
           ) : (
             <div className="space-y-2.5">
-              {locations.slice(0, 5).map((loc) => {
-                const assignedCount = devices.filter((d) => d.location_id === loc.id).length;
-                return (
-                  <div
-                    key={loc.id}
-                    className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <div className="font-semibold text-white flex items-center gap-2">
-                        <span>{loc.name}</span>
-                        <span className="font-mono text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
-                          {loc.code}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-500">{loc.city || "Primary Branch"} • {loc.timezone || "UTC"}</div>
+              {members.slice(0, 5).map((m) => (
+                <div
+                  key={m.id}
+                  className="p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-400">
+                      {m.user?.profile?.first_name ? m.user.profile.first_name[0] : (m.user?.email[0] || "U").toUpperCase()}
                     </div>
-                    <div className="font-mono text-xs text-indigo-400 font-bold">
-                      {assignedCount} {assignedCount === 1 ? "POS" : "POS devices"}
+                    <div>
+                      <div className="font-semibold text-white">
+                        {m.user?.profile?.first_name} {m.user?.profile?.last_name || ""}
+                      </div>
+                      <div className="text-[10px] text-slate-400">{m.user?.email}</div>
                     </div>
                   </div>
-                );
-              })}
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                      m.role === "OWNER"
+                        ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                        : m.role === "ADMIN"
+                        ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
+                        : "bg-slate-800 text-slate-300 border-slate-700"
+                    }`}
+                  >
+                    {m.role}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>

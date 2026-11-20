@@ -31,6 +31,7 @@ export interface Application {
   name: string;
   description?: string;
   type: string;
+  console_url?: string;
 }
 
 export interface Plan {
@@ -52,48 +53,6 @@ export interface Subscription {
   expires_at?: string;
   created_at: string;
   plan?: Plan;
-}
-
-export interface DeviceLicenseSummary {
-  id: string;
-  application_id: string;
-  status: string;
-  expires_at: string;
-  issued_at: string;
-}
-
-export interface Device {
-  id: string;
-  organization_id: string;
-  location_id?: string | null;
-  name: string;
-  fingerprint: string;
-  status: string;
-  sync_enabled?: boolean;
-  last_heartbeat_at?: string | null;
-  menu_mode?: "LOCAL" | "CLOUD" | null;
-  effective_menu_mode?: "LOCAL" | "CLOUD";
-  licenses?: DeviceLicenseSummary[];
-}
-
-export interface OrgLocation {
-  id: string;
-  organization_id: string;
-  code: string;
-  name: string;
-  description?: string;
-  address_line1?: string;
-  address_line2?: string;
-  city?: string;
-  state_province?: string;
-  postal_code?: string;
-  country_code?: string;
-  timezone?: string;
-  status: string;
-  metadata?: Record<string, any>;
-  pos_sync_allowed?: boolean;
-  pos_mode_policy?: "ANY_ALLOWED" | "LOCAL_ONLY" | "CLOUD_ONLY";
-  pos_default_mode?: "LOCAL" | "CLOUD";
 }
 
 export interface ApplicationRole {
@@ -123,23 +82,13 @@ export interface ApplicationAssignment {
   };
 }
 
-export interface ActivatedSyncTicket {
-  device_id: string;
-  sync_endpoint: string;
-  signed_ticket: string;
-  signature_b64: string;
-  expires_at: string;
-}
-
 export type MainNavSection = 
   | "overview" 
   | "identity" 
   | "business_entities" 
+  | "org_members" 
   | "app_catalog" 
-  | "org_team" 
-  | "org_locations" 
-  | "org_terminals" 
-  | "org_subscriptions"
+  | "subscriptions"
   | "security"
   | "audit"
   | "settings";
