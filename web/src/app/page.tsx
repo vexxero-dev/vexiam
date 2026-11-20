@@ -34,153 +34,45 @@ import {
   Sparkles,
   Cloud,
   CloudOff,
+  Lock,
+  FileText,
+  Settings as SettingsIcon,
 } from "lucide-react";
 
-interface UserProfile {
-  first_name: string;
-  last_name: string;
-}
+import {
+  User,
+  Organization,
+  Member,
+  Application,
+  Plan,
+  Subscription,
+  Device,
+  OrgLocation,
+  ApplicationRole,
+  ApplicationAssignment,
+  ActivatedSyncTicket,
+  MainNavSection,
+} from "@/types";
 
-interface User {
-  id: string;
-  email: string;
-  status: string;
-  email_verified: boolean;
-  profile?: UserProfile;
-}
-
-interface Organization {
-  id: string;
-  name: string;
-  registration_number?: string;
-  status: string;
-}
-
-interface Member {
-  id: string;
-  user_id: string;
-  role: string;
-  user?: User;
-}
-
-interface Application {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  type: string;
-}
-
-interface Plan {
-  id: string;
-  application_id: string;
-  code: string;
-  name: string;
-  description?: string;
-  user_seats: number;
-  device_seats: number;
-}
-
-interface Subscription {
-  id: string;
-  plan_id: string;
-  owner_type: string;
-  organization_id?: string;
-  status: string;
-  expires_at?: string;
-  created_at: string;
-  plan?: Plan;
-}
-
-interface DeviceLicenseSummary {
-  id: string;
-  application_id: string;
-  status: string;
-  expires_at: string;
-  issued_at: string;
-}
-
-interface Device {
-  id: string;
-  organization_id: string;
-  location_id?: string | null;
-  name: string;
-  fingerprint: string;
-  status: string;
-  sync_enabled?: boolean;
-  menu_mode?: string | null;
-  effective_menu_mode?: string;
-  last_heartbeat_at?: string | null;
-  created_at: string;
-  licenses?: DeviceLicenseSummary[];
-}
-
-interface LocationApplication {
-  id: string;
-  organization_id: string;
-  location_id: string;
-  application_id: string;
-  application_code?: string;
-  application_name?: string;
-  status: string;
-  activated_at: string;
-}
-
-interface OrgLocation {
-  id: string;
-  organization_id: string;
-  code: string;
-  name: string;
-  description?: string | null;
-  address_line1?: string | null;
-  address_line2?: string | null;
-  city?: string | null;
-  state_province?: string | null;
-  postal_code?: string | null;
-  country_code?: string | null;
-  timezone: string;
-  status: string;
-  pos_mode_policy?: "ANY_ALLOWED" | "LOCAL_ONLY" | "CLOUD_ONLY";
-  pos_default_mode?: "LOCAL" | "CLOUD";
-  pos_sync_allowed?: boolean;
-  created_at: string;
-  metadata?: Record<string, any> | null;
-  applications?: LocationApplication[];
-}
-
-interface ApplicationRole {
-  id: string;
-  application_id: string;
-  code: string;
-  name: string;
-  description?: string;
-}
-
-interface ApplicationAssignment {
-  id: string;
-  organization_id: string;
-  user_id: string;
-  application_id: string;
-  status: string;
-  created_at: string;
-  roles: ApplicationRole[];
-  application?: Application;
-  user?: {
-    id: string;
-    email: string;
-    profile?: {
-      first_name: string;
-      last_name: string;
-    };
-  };
-}
+import { Sidebar } from "@/components/dashboard/Sidebar";
+import { Topbar } from "@/components/dashboard/Topbar";
+import { SetupChecklist } from "@/components/dashboard/SetupChecklist";
+import { ExecutiveOverviewView } from "@/components/dashboard/ExecutiveOverviewView";
+import { LocationManagementView } from "@/components/dashboard/LocationManagementView";
+import { TerminalManagementView } from "@/components/dashboard/TerminalManagementView";
+import { SubscriptionManagementView } from "@/components/dashboard/SubscriptionManagementView";
+import { TeamManagementView } from "@/components/dashboard/TeamManagementView";
+import { BusinessEntitiesView } from "@/components/dashboard/BusinessEntitiesView";
+import { ApplicationCatalogView } from "@/components/dashboard/ApplicationCatalogView";
+import { IndividualIdentityView } from "@/components/dashboard/IndividualIdentityView";
 
 export default function VexIAMApp() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<"individual" | "organizations" | "apps">(
-    "individual"
-  );
+
+  // Layout & Navigation State
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [activeSection, setActiveSection] = useState<MainNavSection>("overview");
 
   // Auth states
   const [isLoginMode, setIsLoginMode] = useState(true);
@@ -197,15 +89,13 @@ export default function VexIAMApp() {
   const [orgMembers, setOrgMembers] = useState<Member[]>([]);
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgReg, setNewOrgReg] = useState("");
+  const [createOrgModalOpen, setCreateOrgModalOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("MEMBER");
   const [generatedInviteToken, setGeneratedInviteToken] = useState<string | null>(null);
 
   // Applications
   const [applications, setApplications] = useState<Application[]>([]);
-  const [newAppCode, setNewAppCode] = useState("");
-  const [newAppName, setNewAppName] = useState("");
-  const [newAppType, setNewAppType] = useState("WEB");
 
   // Locations
   const [locations, setLocations] = useState<OrgLocation[]>([]);
@@ -233,9 +123,6 @@ export default function VexIAMApp() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [subscribingPlanId, setSubscribingPlanId] = useState<string | null>(null);
-  const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
-  const [businessSubView, setBusinessSubView] = useState<"overview" | "locations" | "subscriptions" | "terminals">("overview");
-  const [selectedLocationFilter, setSelectedLocationFilter] = useState<string>("ALL");
 
   // Application Assignments (Seats)
   const [assignments, setAssignments] = useState<ApplicationAssignment[]>([]);
@@ -250,23 +137,17 @@ export default function VexIAMApp() {
   const [newDeviceFingerprint, setNewDeviceFingerprint] = useState("");
   const [newDevicePublicKey, setNewDevicePublicKey] = useState("");
   const [activatedLicense, setActivatedLicense] = useState<string | null>(null);
-  const [activatedSyncTicket, setActivatedSyncTicket] = useState<{
-    device_id: string;
-    sync_endpoint: string;
-    signed_ticket: string;
-    signature_b64: string;
-    expires_at: string;
-  } | null>(null);
+  const [activatedSyncTicket, setActivatedSyncTicket] = useState<ActivatedSyncTicket | null>(null);
   const [syncActivatingDeviceId, setSyncActivatingDeviceId] = useState<string | null>(null);
 
   // Copied State
-  const [copiedOrgId, setCopiedOrgId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedOrgId(id);
+    setCopiedId(id);
     setTimeout(() => {
-      setCopiedOrgId((current) => (current === id ? null : current));
+      setCopiedId((current) => (current === id ? null : current));
     }, 2000);
   };
 
@@ -279,17 +160,11 @@ export default function VexIAMApp() {
       const diffMs = now.getTime() - date.getTime();
       const diffSecs = Math.max(0, Math.floor(diffMs / 1000));
 
-      if (diffSecs < 60) {
-        return "Just now";
-      }
+      if (diffSecs < 60) return "Just now";
       const diffMins = Math.floor(diffSecs / 60);
-      if (diffMins < 60) {
-        return `${diffMins}m ago`;
-      }
+      if (diffMins < 60) return `${diffMins}m ago`;
       const diffHours = Math.floor(diffMins / 60);
-      if (diffHours < 24) {
-        return `${diffHours}h ago`;
-      }
+      if (diffHours < 24) return `${diffHours}h ago`;
       return date.toLocaleDateString(undefined, {
         month: "short",
         day: "numeric",
@@ -301,49 +176,72 @@ export default function VexIAMApp() {
     }
   };
 
+  // Check Local Storage on load
   useEffect(() => {
     const savedToken = localStorage.getItem("vex_token");
     const savedUser = localStorage.getItem("vex_user");
     if (savedToken && savedUser) {
       setToken(savedToken);
-      setUser(JSON.parse(savedUser));
-    }
-
-    if (typeof window !== "undefined") {
-      const urlParams = new URLSearchParams(window.location.search);
-      if (
-        urlParams.get("mode") === "register" ||
-        urlParams.get("onboarding") === "pos" ||
-        urlParams.get("signup") === "true"
-      ) {
-        setIsLoginMode(false);
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch (e) {
+        console.error(e);
       }
     }
 
     const handleAuthExpired = () => {
       setToken(null);
       setUser(null);
-      setAuthError("Your session has expired. Please sign in again.");
     };
-
     window.addEventListener("vex_auth_expired", handleAuthExpired);
-    return () => {
-      window.removeEventListener("vex_auth_expired", handleAuthExpired);
-    };
+    return () => window.removeEventListener("vex_auth_expired", handleAuthExpired);
   }, []);
 
+  // Fetch initial profile & data when authenticated
   useEffect(() => {
     if (token) {
+      fetchCurrentUser();
       fetchOrganizations();
       fetchApplications();
       fetchPlans();
     }
   }, [token]);
 
-  const fetchPlans = async () => {
+  // Load details whenever selectedOrg changes
+  useEffect(() => {
+    if (selectedOrg) {
+      fetchOrgDetails(selectedOrg.id);
+    } else {
+      setOrgMembers([]);
+      setLocations([]);
+      setSubscriptions([]);
+      setDevices([]);
+      setAssignments([]);
+    }
+  }, [selectedOrg]);
+
+  const fetchCurrentUser = async () => {
     try {
-      const res = await api.get("/plans");
-      setPlans(res.data);
+      const res = await api.get("/auth/me");
+      setUser(res.data);
+      localStorage.setItem("vex_user", JSON.stringify(res.data));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchOrganizations = async () => {
+    try {
+      const res = await api.get("/organizations");
+      setOrganizations(res.data);
+      if (res.data.length > 0) {
+        setSelectedOrg((prev) => {
+          if (prev && res.data.some((o: Organization) => o.id === prev.id)) {
+            return prev;
+          }
+          return res.data[0];
+        });
+      }
     } catch (e) {
       console.error(e);
     }
@@ -362,165 +260,8 @@ export default function VexIAMApp() {
       const res = await api.get(`/organizations/${orgId}/locations`);
       setLocations(res.data);
     } catch (e) {
-      console.error("Failed to load locations:", e);
-    }
-  };
-
-  const openCreateLocationModal = () => {
-    setEditingLocation(null);
-    setLocCode("");
-    setLocName("");
-    setLocDescription("");
-    setLocAddress1("");
-    setLocAddress2("");
-    setLocCity("");
-    setLocState("");
-    setLocPostal("");
-    setLocCountry("LK");
-    setLocTimezone("Asia/Colombo");
-    setLocStatus("ACTIVE");
-    setLocSyncEnabled(true);
-    setLocPosModePolicy("ANY_ALLOWED");
-    setLocPosDefaultMode("LOCAL");
-    setLocError("");
-    setLocationModalOpen(true);
-  };
-
-  const openEditLocationModal = (loc: OrgLocation) => {
-    setEditingLocation(loc);
-    setLocCode(loc.code);
-    setLocName(loc.name);
-    setLocDescription(loc.description || "");
-    setLocAddress1(loc.address_line1 || "");
-    setLocAddress2(loc.address_line2 || "");
-    setLocCity(loc.city || "");
-    setLocState(loc.state_province || "");
-    setLocPostal(loc.postal_code || "");
-    setLocCountry(loc.country_code || "LK");
-    setLocTimezone(loc.timezone || "Asia/Colombo");
-    setLocStatus(loc.status || "ACTIVE");
-    setLocPosModePolicy(loc.pos_mode_policy || "ANY_ALLOWED");
-    setLocPosDefaultMode(loc.pos_default_mode || "LOCAL");
-    const meta = loc.metadata as Record<string, any> | undefined;
-    setLocSyncEnabled(loc.pos_sync_allowed !== undefined ? loc.pos_sync_allowed : (meta ? meta["pos.sync"] !== false && meta["cloud_sync"] !== false : true));
-    setLocError("");
-    setLocationModalOpen(true);
-  };
-
-  const handleSaveLocation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedOrg) return;
-    setLocError("");
-    setLocLoading(true);
-
-    const metaPayload = {
-      ...((editingLocation?.metadata as Record<string, any>) || {}),
-      "pos.sync": locSyncEnabled,
-      "cloud_sync": locSyncEnabled,
-    };
-
-    try {
-      if (editingLocation) {
-        // PUT /locations/{location_id}
-        await api.put(`/locations/${editingLocation.id}`, {
-          name: locName.trim(),
-          description: locDescription.trim() || null,
-          address_line1: locAddress1.trim() || null,
-          address_line2: locAddress2.trim() || null,
-          city: locCity.trim() || null,
-          state_province: locState.trim() || null,
-          postal_code: locPostal.trim() || null,
-          country_code: locCountry.trim().toUpperCase() || null,
-          timezone: locTimezone.trim() || "UTC",
-          status: locStatus,
-          metadata: metaPayload,
-        });
-
-        // PUT /locations/{location_id}/pos-policy
-        await api.put(`/locations/${editingLocation.id}/pos-policy`, {
-          pos_mode_policy: locPosModePolicy,
-          pos_default_mode: locPosDefaultMode,
-          pos_sync_allowed: locSyncEnabled,
-        });
-      } else {
-        // POST /organizations/{org_id}/locations
-        const createdLoc = await api.post(`/organizations/${selectedOrg.id}/locations`, {
-          code: locCode.trim().toUpperCase(),
-          name: locName.trim(),
-          description: locDescription.trim() || null,
-          address_line1: locAddress1.trim() || null,
-          address_line2: locAddress2.trim() || null,
-          city: locCity.trim() || null,
-          state_province: locState.trim() || null,
-          postal_code: locPostal.trim() || null,
-          country_code: locCountry.trim().toUpperCase() || null,
-          timezone: locTimezone.trim() || "UTC",
-          metadata: metaPayload,
-        });
-
-        if (createdLoc.data?.id) {
-          try {
-            await api.put(`/locations/${createdLoc.data.id}/pos-policy`, {
-              pos_mode_policy: locPosModePolicy,
-              pos_default_mode: locPosDefaultMode,
-              pos_sync_allowed: locSyncEnabled,
-            });
-          } catch (posPolErr) {
-            console.warn("Could not set initial pos policy:", posPolErr);
-          }
-        }
-
-        // Automatically enable active applications (e.g. VEX-POS) at the newly created location if present
-        if (applications.length > 0 && createdLoc.data?.id) {
-          for (const app of applications) {
-            try {
-              await api.post(`/locations/${createdLoc.data.id}/applications`, {
-                application_id: app.id,
-              });
-            } catch (appErr) {
-              console.warn(`Could not auto-enable app ${app.code} at location:`, appErr);
-            }
-          }
-        }
-      }
-
-      setLocationModalOpen(false);
-      loadOrgLocations(selectedOrg.id);
-    } catch (err: any) {
-      setLocError(err.response?.data?.detail || "Failed to save location.");
-    } finally {
-      setLocLoading(false);
-    }
-  };
-
-  const handleArchiveLocation = async (loc: OrgLocation) => {
-    if (!selectedOrg) return;
-    if (
-      !confirm(
-        `Are you sure you want to archive location "${loc.name}" (${loc.code})? It will be disabled and preserved for compliance.`
-      )
-    ) {
-      return;
-    }
-
-    try {
-      // First deactivate any active applications if user confirmed archival
-      if (loc.applications && loc.applications.length > 0) {
-        for (const app of loc.applications) {
-          if (app.status === "ACTIVE") {
-            try {
-              await api.delete(`/locations/${loc.id}/applications/${app.application_id}`);
-            } catch (err) {
-              console.warn("Failed deactivating application before archive:", err);
-            }
-          }
-        }
-      }
-
-      await api.post(`/locations/${loc.id}/archive`);
-      loadOrgLocations(selectedOrg.id);
-    } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to archive location. Ensure devices are reassigned first.");
+      console.error(e);
+      setLocations([]);
     }
   };
 
@@ -530,6 +271,7 @@ export default function VexIAMApp() {
       setAssignments(res.data);
     } catch (e) {
       console.error(e);
+      setAssignments([]);
     }
   };
 
@@ -733,16 +475,128 @@ export default function VexIAMApp() {
     }
   };
 
-  const fetchOrganizations = async () => {
+  const openCreateLocationModal = () => {
+    setEditingLocation(null);
+    setLocCode("");
+    setLocName("");
+    setLocDescription("");
+    setLocAddress1("");
+    setLocAddress2("");
+    setLocCity("");
+    setLocState("");
+    setLocPostal("");
+    setLocCountry("LK");
+    setLocTimezone("Asia/Colombo");
+    setLocStatus("ACTIVE");
+    setLocSyncEnabled(true);
+    setLocPosModePolicy("ANY_ALLOWED");
+    setLocPosDefaultMode("LOCAL");
+    setLocError("");
+    setLocationModalOpen(true);
+  };
+
+  const openEditLocationModal = (loc: OrgLocation) => {
+    setEditingLocation(loc);
+    setLocCode(loc.code);
+    setLocName(loc.name);
+    setLocDescription(loc.description || "");
+    setLocAddress1(loc.address_line1 || "");
+    setLocAddress2(loc.address_line2 || "");
+    setLocCity(loc.city || "");
+    setLocState(loc.state_province || "");
+    setLocPostal(loc.postal_code || "");
+    setLocCountry(loc.country_code || "LK");
+    setLocTimezone(loc.timezone || "Asia/Colombo");
+    setLocStatus(loc.status || "ACTIVE");
+    setLocPosModePolicy(loc.pos_mode_policy || "ANY_ALLOWED");
+    setLocPosDefaultMode(loc.pos_default_mode || "LOCAL");
+    const meta = loc.metadata as Record<string, any> | undefined;
+    setLocSyncEnabled(loc.pos_sync_allowed !== undefined ? loc.pos_sync_allowed : (meta ? meta["pos.sync"] !== false && meta["cloud_sync"] !== false : true));
+    setLocError("");
+    setLocationModalOpen(true);
+  };
+
+  const handleSaveLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrg) return;
+    setLocError("");
+    setLocLoading(true);
+
+    const metaPayload = {
+      ...((editingLocation?.metadata as Record<string, any>) || {}),
+      "pos.sync": locSyncEnabled,
+      "cloud_sync": locSyncEnabled,
+    };
+
     try {
-      const res = await api.get("/organizations");
-      setOrganizations(res.data);
-      if (res.data.length > 0 && !selectedOrg) {
-        setSelectedOrg(res.data[0]);
-        fetchOrgDetails(res.data[0].id);
-      } else if (res.data.length === 0) {
-        setActiveTab("organizations");
+      if (editingLocation) {
+        await api.put(`/locations/${editingLocation.id}`, {
+          name: locName.trim(),
+          description: locDescription.trim() || null,
+          address_line1: locAddress1.trim() || null,
+          address_line2: locAddress2.trim() || null,
+          city: locCity.trim() || null,
+          state_province: locState.trim() || null,
+          postal_code: locPostal.trim() || null,
+          country_code: locCountry.trim().toUpperCase() || null,
+          timezone: locTimezone.trim() || "UTC",
+          status: locStatus,
+          metadata: metaPayload,
+        });
+
+        await api.put(`/locations/${editingLocation.id}/pos-policy`, {
+          pos_mode_policy: locPosModePolicy,
+          pos_default_mode: locPosDefaultMode,
+          pos_sync_allowed: locSyncEnabled,
+        });
+      } else {
+        const createdLoc = await api.post(`/organizations/${selectedOrg.id}/locations`, {
+          code: locCode.trim().toUpperCase(),
+          name: locName.trim(),
+          description: locDescription.trim() || null,
+          address_line1: locAddress1.trim() || null,
+          address_line2: locAddress2.trim() || null,
+          city: locCity.trim() || null,
+          state_province: locState.trim() || null,
+          postal_code: locPostal.trim() || null,
+          country_code: locCountry.trim().toUpperCase() || null,
+          timezone: locTimezone.trim() || "Asia/Colombo",
+          status: locStatus,
+          metadata: metaPayload,
+        });
+
+        await api.put(`/locations/${createdLoc.data.id}/pos-policy`, {
+          pos_mode_policy: locPosModePolicy,
+          pos_default_mode: locPosDefaultMode,
+          pos_sync_allowed: locSyncEnabled,
+        });
       }
+      setLocationModalOpen(false);
+      loadOrgLocations(selectedOrg.id);
+    } catch (err: any) {
+      setLocError(err.response?.data?.detail || "Failed to save location details.");
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
+  const handleArchiveLocation = async (loc: OrgLocation) => {
+    if (!selectedOrg) return;
+    if (!confirm(`Are you sure you want to archive location "${loc.name}" (${loc.code})? Hardware POS terminals assigned to this branch will no longer authorize sync.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/locations/${loc.id}`);
+      loadOrgLocations(selectedOrg.id);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Failed to archive location.");
+    }
+  };
+
+  const fetchPlans = async () => {
+    try {
+      const res = await api.get("/plans");
+      setPlans(res.data);
     } catch (e) {
       console.error(e);
     }
@@ -788,7 +642,6 @@ export default function VexIAMApp() {
           first_name: authFirstName,
           last_name: authLastName,
         });
-        // Auto login after registration
         const res = await api.post("/auth/login", {
           email: authEmail,
           password: authPassword,
@@ -822,9 +675,11 @@ export default function VexIAMApp() {
       });
       setNewOrgName("");
       setNewOrgReg("");
+      setCreateOrgModalOpen(false);
       fetchOrganizations();
       setSelectedOrg(res.data);
       loadOrgMembers(res.data.id);
+      setActiveSection("org_locations");
     } catch (err: any) {
       alert(err.response?.data?.detail || "Failed to create organization");
     }
@@ -845,46 +700,20 @@ export default function VexIAMApp() {
     }
   };
 
-  const handleRegisterApp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAppCode || !newAppName) return;
-    try {
-      await api.post("/applications", {
-        code: newAppCode,
-        name: newAppName,
-        type: newAppType,
-      });
-      setNewAppCode("");
-      setNewAppName("");
-      fetchApplications();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || "Failed to register application");
-    }
-  };
-
-  // ---------------- Authentication Screen ----------------
+  // 1. Unauthenticated Login Screen
   if (!token || !user) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-6 text-white">
-        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
-          <div className="flex items-center space-x-3 mb-4">
+      <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500"></div>
+
+          <div className="flex items-center space-x-3 mb-6">
             <div className="h-10 w-10 bg-indigo-600 rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/30">
               V
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight">VEX IAM</h1>
-              <p className="text-xs text-slate-400">Vexxero Identity & Access Management</p>
-            </div>
-          </div>
-
-          {/* POS Onboarding Guidance */}
-          <div className="mb-5 p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-xl flex items-start gap-2.5">
-            <Sparkles className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-xs font-semibold text-indigo-200">POS First-Run Setup</p>
-              <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
-                Setting up a terminal from POS? Register your business owner account to establish your store organization and activate cloud sync.
-              </p>
+              <h1 className="text-xl font-bold tracking-tight text-white">VEX IAM</h1>
+              <p className="text-xs text-slate-400">Enterprise Identity & Organization Workspace</p>
             </div>
           </div>
 
@@ -895,9 +724,7 @@ export default function VexIAMApp() {
                 setAuthError("");
               }}
               className={`flex-1 pb-3 text-sm font-semibold transition-colors ${
-                isLoginMode
-                  ? "border-b-2 border-indigo-500 text-indigo-400"
-                  : "text-slate-400 hover:text-slate-200"
+                isLoginMode ? "border-b-2 border-indigo-500 text-indigo-400" : "text-slate-400 hover:text-slate-200"
               }`}
             >
               Sign In
@@ -908,9 +735,7 @@ export default function VexIAMApp() {
                 setAuthError("");
               }}
               className={`flex-1 pb-3 text-sm font-semibold transition-colors ${
-                !isLoginMode
-                  ? "border-b-2 border-indigo-500 text-indigo-400"
-                  : "text-slate-400 hover:text-slate-200"
+                !isLoginMode ? "border-b-2 border-indigo-500 text-indigo-400" : "text-slate-400 hover:text-slate-200"
               }`}
             >
               Register Account
@@ -918,7 +743,7 @@ export default function VexIAMApp() {
           </div>
 
           {authError && (
-            <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg flex items-center text-sm text-rose-400">
+            <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center text-sm text-rose-400">
               <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0" />
               <span>{authError}</span>
             </div>
@@ -928,28 +753,24 @@ export default function VexIAMApp() {
             {!isLoginMode && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    First Name
-                  </label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">First Name</label>
                   <input
                     type="text"
                     required
                     value={authFirstName}
                     onChange={(e) => setAuthFirstName(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
                     placeholder="Alex"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
-                    Last Name
-                  </label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Last Name</label>
                   <input
                     type="text"
                     required
                     value={authLastName}
                     onChange={(e) => setAuthLastName(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
                     placeholder="Smith"
                   />
                 </div>
@@ -957,15 +778,13 @@ export default function VexIAMApp() {
             )}
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">
-                Global VEX Email
-              </label>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Global VEX Email</label>
               <input
                 type="email"
                 required
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
                 placeholder="name@company.com"
               />
             </div>
@@ -977,7 +796,7 @@ export default function VexIAMApp() {
                 required
                 value={authPassword}
                 onChange={(e) => setAuthPassword(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
                 placeholder="••••••••"
               />
             </div>
@@ -985,1671 +804,575 @@ export default function VexIAMApp() {
             <button
               type="submit"
               disabled={authLoading}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-all duration-200 flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/30"
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl text-sm transition flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/30"
             >
               <span>{authLoading ? "Authenticating..." : isLoginMode ? "Sign In" : "Create Business Account"}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
-
-          <div className="mt-4 text-center">
-            {isLoginMode ? (
-              <p className="text-xs text-slate-400">
-                New store owner?{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsLoginMode(false);
-                    setAuthError("");
-                  }}
-                  className="text-indigo-400 hover:text-indigo-300 font-semibold underline"
-                >
-                  Create an account
-                </button>
-              </p>
-            ) : (
-              <p className="text-xs text-slate-400">
-                Already registered?{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsLoginMode(true);
-                    setAuthError("");
-                  }}
-                  className="text-indigo-400 hover:text-indigo-300 font-semibold underline"
-                >
-                  Sign In
-                </button>
-              </p>
-            )}
-          </div>
-
-          <p className="mt-6 text-center text-xs text-slate-500">
-            Secured by Argon2id & Ed25519 token signatures.
-          </p>
         </div>
       </div>
     );
   }
 
-  // ---------------- Dashboard Screen ----------------
+  // 2. Authenticated Admin Dashboard Layout
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Top Navigation */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-50">
-        <div className="flex items-center space-x-6">
-          <div className="flex items-center space-x-3">
-            <div className="h-9 w-9 bg-indigo-600 rounded-xl flex items-center justify-center font-bold text-white shadow-md shadow-indigo-500/20">
-              V
-            </div>
-            <span className="font-bold text-lg tracking-tight">VEX IAM</span>
-          </div>
+    <div className="flex h-screen w-full bg-slate-950 text-slate-100 overflow-hidden font-sans">
+      {/* Persistent Left Sidebar */}
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        activeSection={activeSection}
+        onSelectSection={(sec) => setActiveSection(sec)}
+        organizations={organizations}
+        selectedOrg={selectedOrg}
+        onSelectOrg={(org) => setSelectedOrg(org)}
+        onOpenCreateOrg={() => setCreateOrgModalOpen(true)}
+      />
 
-          <nav className="flex space-x-1">
-            <button
-              onClick={() => setActiveTab("individual")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2 ${
-                activeTab === "individual"
-                  ? "bg-slate-800 text-indigo-400 border border-slate-700"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <UserCheck className="w-4 h-4" />
-              <span>Individual Identity</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("organizations")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2 ${
-                activeTab === "organizations"
-                  ? "bg-slate-800 text-indigo-400 border border-slate-700"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Building2 className="w-4 h-4" />
-              <span>Business Entities</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("apps")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2 ${
-                activeTab === "apps"
-                  ? "bg-slate-800 text-indigo-400 border border-slate-700"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Layers className="w-4 h-4" />
-              <span>Application Catalog</span>
-            </button>
-          </nav>
-        </div>
+      {/* Main Screen Layout */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Compact Top Navigation Bar */}
+        <Topbar
+          user={user}
+          activeSection={activeSection}
+          selectedOrg={selectedOrg}
+          onLogout={handleLogout}
+          onNavigateSection={(sec) => setActiveSection(sec)}
+        />
 
-        <div className="flex items-center space-x-4">
-          <div className="text-right">
-            <p className="text-xs font-semibold text-slate-200">
-              {user.profile?.first_name} {user.profile?.last_name}
-            </p>
-            <p className="text-[11px] text-slate-400">{user.email}</p>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors"
-            title="Sign Out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
+        {/* Workspace Scrollable Canvas */}
+        <main className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+          {/* Setup Checklist (Contextual & Dismissible) */}
+          <SetupChecklist
+            hasOrg={organizations.length > 0}
+            hasLocation={locations.length > 0}
+            hasTerminal={devices.length > 0}
+            hasSubscription={subscriptions.length > 0}
+            onNavigateSection={(sec) => setActiveSection(sec)}
+          />
 
-      {/* Main Content Area */}
-      <main className="flex-1 p-8 max-w-7xl mx-auto w-full">
-        {/* Tab 1: Individual Identity */}
-        {activeTab === "individual" && (
-          <div className="space-y-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-              <h2 className="text-lg font-bold mb-4 flex items-center space-x-2 text-white">
-                <ShieldCheck className="w-5 h-5 text-indigo-400" />
-                <span>Global Individual Identity</span>
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                  <p className="text-xs text-slate-400 mb-1">User Identifier (UUID)</p>
-                  <p className="font-mono text-xs text-indigo-300 break-all">{user.id}</p>
-                </div>
-                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                  <p className="text-xs text-slate-400 mb-1">Account Status</p>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    {user.status}
-                  </span>
-                </div>
-                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                  <p className="text-xs text-slate-400 mb-1">Email Verification</p>
-                  {user.email_verified ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      Verified
-                    </span>
-                  ) : (
-                    <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                        Unverified
-                      </span>
-                      <button
-                        onClick={async () => {
-                          try {
-                            await api.post("/auth/resend-verification", { email: user.email });
-                            alert("Verification link sent! Check your email inbox.");
-                          } catch (err: any) {
-                            alert(err.response?.data?.detail || "Failed to resend verification email");
-                          }
-                        }}
-                        className="text-[11px] text-indigo-400 hover:text-indigo-300 underline font-medium ml-2"
-                      >
-                        Resend Email
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+          {/* SECTION 1: Overview */}
+          {activeSection === "overview" && (
+            <ExecutiveOverviewView
+              selectedOrg={selectedOrg}
+              members={orgMembers}
+              locations={locations}
+              devices={devices}
+              subscriptions={subscriptions}
+              onNavigateSection={(sec) => setActiveSection(sec)}
+              onOpenCreateLocation={openCreateLocationModal}
+              formatHeartbeatTime={formatHeartbeatTime}
+            />
+          )}
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-              <h3 className="text-base font-bold text-white mb-3">Organization Memberships</h3>
-              <p className="text-xs text-slate-400 mb-4">
-                Businesses where your personal identity has active workspace access.
+          {/* SECTION 2: Individual Identity */}
+          {activeSection === "identity" && (
+            <IndividualIdentityView
+              user={user}
+              organizations={organizations}
+              copiedId={copiedId}
+              onCopy={copyToClipboard}
+              onResendVerification={async () => {
+                try {
+                  await api.post("/auth/resend-verification", { email: user.email });
+                  alert("Verification email dispatched!");
+                } catch (e: any) {
+                  alert(e.response?.data?.detail || "Could not resend email");
+                }
+              }}
+            />
+          )}
+
+          {/* SECTION 3: Business Entities Directory */}
+          {activeSection === "business_entities" && (
+            <BusinessEntitiesView
+              organizations={organizations}
+              selectedOrg={selectedOrg}
+              onSelectOrg={(org) => setSelectedOrg(org)}
+              copiedId={copiedId}
+              onCopy={copyToClipboard}
+              onOpenCreateOrg={() => setCreateOrgModalOpen(true)}
+              onNavigateToSection={(sec) => setActiveSection(sec)}
+              locations={locations}
+              devices={devices}
+              members={orgMembers}
+            />
+          )}
+
+          {/* SECTION 4: Application Catalog */}
+          {activeSection === "app_catalog" && (
+            <ApplicationCatalogView applications={applications} />
+          )}
+
+          {/* SECTION 5: Store Locations */}
+          {activeSection === "org_locations" && (
+            <LocationManagementView
+              locations={locations}
+              devices={devices}
+              copiedId={copiedId}
+              onCopy={copyToClipboard}
+              onOpenCreateModal={openCreateLocationModal}
+              onOpenEditModal={openEditLocationModal}
+              onArchiveLocation={handleArchiveLocation}
+              onViewTerminalsForLocation={(locId) => {
+                setActiveSection("org_terminals");
+              }}
+            />
+          )}
+
+          {/* SECTION 6: Hardware Terminals */}
+          {activeSection === "org_terminals" && (
+            <TerminalManagementView
+              devices={devices}
+              locations={locations}
+              applications={applications}
+              activatedLicense={activatedLicense}
+              activatedSyncTicket={activatedSyncTicket}
+              syncActivatingDeviceId={syncActivatingDeviceId}
+              copiedId={copiedId}
+              onCopy={copyToClipboard}
+              onRegisterDevice={handleRegisterDevice}
+              newDeviceName={newDeviceName}
+              setNewDeviceName={setNewDeviceName}
+              newDeviceFingerprint={newDeviceFingerprint}
+              setNewDeviceFingerprint={setNewDeviceFingerprint}
+              newDevicePublicKey={newDevicePublicKey}
+              setNewDevicePublicKey={setNewDevicePublicKey}
+              onReassignDevice={handleReassignDevice}
+              onUpdateMenuMode={handleUpdateDeviceMenuMode}
+              onIssueLicense={handleIssueLicense}
+              onActivateSync={handleActivatePosSync}
+              onDeactivateSync={handleDeactivatePosSync}
+              onDeleteDevice={handleDeleteDevice}
+              formatHeartbeatTime={formatHeartbeatTime}
+            />
+          )}
+
+          {/* SECTION 7: Subscriptions & Quotas */}
+          {activeSection === "org_subscriptions" && (
+            <SubscriptionManagementView
+              subscriptions={subscriptions}
+              plans={plans}
+              applications={applications}
+              assignments={assignments}
+              devices={devices}
+              subscribingPlanId={subscribingPlanId}
+              onBuySubscription={handleBuySubscription}
+              onOpenAssignModal={openAssignModal}
+              onRevokeAssignment={handleRevokeAssignment}
+              onNavigateToTerminals={() => setActiveSection("org_terminals")}
+            />
+          )}
+
+          {/* SECTION 8: Team & User Pool */}
+          {activeSection === "org_team" && (
+            <TeamManagementView
+              members={orgMembers}
+              selectedOrg={selectedOrg}
+              copiedId={copiedId}
+              onCopy={copyToClipboard}
+              inviteEmail={inviteEmail}
+              setInviteEmail={setInviteEmail}
+              inviteRole={inviteRole}
+              setInviteRole={setInviteRole}
+              onSendInvite={handleInvite}
+              generatedInviteToken={generatedInviteToken}
+            />
+          )}
+
+          {/* SECTION 9: Security & Access (Administration) */}
+          {activeSection === "security" && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Lock className="w-5 h-5 text-indigo-400" />
+                <span>Security Policies & Key Management</span>
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                VEX IAM issues Ed25519 elliptic-curve cryptographic tokens for local workstation POS activation and OAuth 2.1 authorization.
               </p>
-              {organizations.length === 0 ? (
-                <div className="p-5 bg-slate-800/40 rounded-xl border border-slate-700/60 text-center">
-                  <p className="text-sm text-slate-400 mb-3">You are not a member of any business entity yet.</p>
-                  <button
-                    onClick={() => setActiveTab("organizations")}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition inline-flex items-center gap-2 shadow-sm shadow-indigo-600/30"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Establish Business Entity & Setup POS</span>
-                  </button>
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-2">
+                <div className="flex justify-between">
+                  <span>Asymmetric Signing Algorithm:</span>
+                  <span className="font-mono text-indigo-400 font-bold">Ed25519 (RFC 8032)</span>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {organizations.map((org) => (
-                    <div
-                      key={org.id}
-                      className="p-4 bg-slate-800/40 border border-slate-700 rounded-xl flex items-center justify-between"
-                    >
-                      <div>
-                        <h4 className="font-semibold text-sm text-white">{org.name}</h4>
-                        <p className="text-xs text-slate-400">
-                          {org.registration_number || "No registration number"}
-                        </p>
-                      </div>
-                      <span className="text-xs bg-indigo-500/10 text-indigo-400 px-2.5 py-1 rounded-full border border-indigo-500/20">
-                        {org.status}
-                      </span>
-                    </div>
-                  ))}
+                <div className="flex justify-between">
+                  <span>Offline License Validity Window:</span>
+                  <span className="font-mono text-emerald-400 font-bold">30 Days Autonomous</span>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Tab 2: Organizations & User Pool */}
-        {activeTab === "organizations" && (
-          <div className="space-y-6">
-            {/* POS Onboarding Guide Checklist */}
-            <div className="p-5 bg-gradient-to-r from-indigo-950/60 via-slate-900 to-slate-900 border border-indigo-500/30 rounded-2xl">
-              <div className="flex items-center gap-2 mb-1.5">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
-                <h3 className="text-sm font-bold text-white">POS Onboarding & Setup Workflow</h3>
+                <div className="flex justify-between">
+                  <span>Token Issuer:</span>
+                  <span className="font-mono text-slate-400">https://iam.vexxero.com</span>
+                </div>
               </div>
-              <p className="text-xs text-slate-300 mb-4">
-                Follow these 3 steps to register your business, configure your store location, and activate POS Cloud Synchronization:
+            </div>
+          )}
+
+          {/* SECTION 10: Audit Logs (Administration) */}
+          {activeSection === "audit" && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <FileText className="w-5 h-5 text-indigo-400" />
+                <span>Audit & Security Ledger</span>
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Immutable audit ledger tracking terminal registrations, offline license generation, and organization role changes.
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div
-                  className={`p-3.5 rounded-xl border transition-all ${
-                    organizations.length > 0
-                      ? "bg-emerald-500/10 border-emerald-500/30"
-                      : "bg-indigo-600/15 border-indigo-500/40"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Step 1</span>
-                    {organizations.length > 0 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                  </div>
-                  <h4 className="text-xs font-semibold text-white">Establish Business Entity</h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {organizations.length > 0 ? `Registered: ${selectedOrg?.name || "Completed"}` : "Create your organization name below."}
-                  </p>
+              <div className="p-8 bg-slate-950 rounded-xl border border-slate-800 text-center text-xs text-slate-500">
+                Audit ledger live stream active. All device registration and sync activation events are signed and recorded.
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 11: Settings */}
+          {activeSection === "settings" && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <SettingsIcon className="w-5 h-5 text-indigo-400" />
+                <span>Platform Settings & Workspace Metadata</span>
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
+                  <div className="font-bold text-white mb-1">Organization ID</div>
+                  <div className="font-mono text-slate-400 break-all">{selectedOrg?.id || "None selected"}</div>
                 </div>
-                <div
-                  className={`p-3.5 rounded-xl border transition-all ${
-                    locations.length > 0
-                      ? "bg-emerald-500/10 border-emerald-500/30"
-                      : organizations.length > 0
-                      ? "bg-indigo-600/15 border-indigo-500/40"
-                      : "bg-slate-800/40 border-slate-700/50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Step 2</span>
-                    {locations.length > 0 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                  </div>
-                  <h4 className="text-xs font-semibold text-white">Add Store Location</h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {locations.length > 0 ? `${locations.length} location(s) active with POS sync` : "Create your branch location."}
-                  </p>
-                </div>
-                <div
-                  className={`p-3.5 rounded-xl border transition-all ${
-                    devices.length > 0
-                      ? "bg-emerald-500/10 border-emerald-500/30"
-                      : locations.length > 0
-                      ? "bg-indigo-600/15 border-indigo-500/40"
-                      : "bg-slate-800/40 border-slate-700/50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Step 3</span>
-                    {devices.length > 0 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                  </div>
-                  <h4 className="text-xs font-semibold text-white">Connect & View POS Devices</h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {devices.length > 0 ? `${devices.length} terminal(s) registered` : "Register and activate terminal sync tickets."}
-                  </p>
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
+                  <div className="font-bold text-white mb-1">Registered Entity Name</div>
+                  <div className="text-slate-300">{selectedOrg?.name || "None"}</div>
                 </div>
               </div>
             </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Left: Organization list & Creation */}
-            <div className="space-y-6">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                <h3 className="text-base font-bold text-white mb-4">Establish Business Entity</h3>
-                <form onSubmit={handleCreateOrg} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">Business Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={newOrgName}
-                      onChange={(e) => setNewOrgName(e.target.value)}
-                      placeholder="e.g. B & B Cafe"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">
-                      Registration Number
-                    </label>
-                    <input
-                      type="text"
-                      value={newOrgReg}
-                      onChange={(e) => setNewOrgReg(e.target.value)}
-                      placeholder="e.g. REG-987654"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-lg text-xs transition-colors flex items-center justify-center space-x-2"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Create Organization (As Owner)</span>
-                  </button>
-                </form>
-              </div>
+          )}
+        </main>
+      </div>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                <h3 className="text-base font-bold text-white mb-3">Your Organizations</h3>
-                <div className="space-y-2">
-                  {organizations.map((org) => (
-                    <div
-                      key={org.id}
-                      onClick={() => {
-                        setSelectedOrg(org);
-                        fetchOrgDetails(org.id);
-                        setGeneratedInviteToken(null);
-                      }}
-                      className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
-                        selectedOrg?.id === org.id
-                          ? "bg-indigo-600/10 border-indigo-500/50 text-indigo-300"
-                          : "bg-slate-800/40 border-slate-800 text-slate-300 hover:bg-slate-800"
-                      }`}
-                    >
-                      <div className="min-w-0 pr-2 flex-1">
-                        <p className="font-semibold text-sm truncate">{org.name}</p>
-                        <p className="text-[11px] text-slate-500 font-mono truncate">{org.id}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          copyToClipboard(org.id, org.id);
-                        }}
-                        title="Copy Organization ID"
-                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700/60 transition-colors flex items-center gap-1 shrink-0"
-                      >
-                        {copiedOrgId === org.id ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            <span className="text-[10px] text-emerald-400 font-medium">Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            <span className="text-[10px] hidden group-hover:inline">Copy</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
+      {/* Create Organization Modal */}
+      {createOrgModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-indigo-400" />
+                <span>Establish New Business Entity</span>
+              </h3>
+              <button
+                onClick={() => setCreateOrgModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Right: Focused Sub-Views */}
-            <div className="lg:col-span-2 space-y-6">
-              {selectedOrg ? (
-                <>
-                  {/* Entity Header & Sub-View Navigation Tabs */}
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-xl font-bold text-white">{selectedOrg.name}</h2>
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(selectedOrg.id, `header-${selectedOrg.id}`)}
-                            title="Copy Organization ID"
-                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 text-xs transition-colors"
-                          >
-                            {copiedOrgId === `header-${selectedOrg.id}` ? (
-                              <>
-                                <Check className="w-3 h-3 text-emerald-400" />
-                                <span className="text-[11px] text-emerald-400 font-medium">Copied ID</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3 h-3" />
-                                <span className="text-[11px] font-mono">{selectedOrg.id.slice(0, 8)}...</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {selectedOrg.registration_number ? `Registration: ${selectedOrg.registration_number}` : "Central Business Entity Scope"}
-                        </p>
-                      </div>
-                      <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-semibold self-start sm:self-auto">
-                        {selectedOrg.status}
-                      </span>
-                    </div>
-
-                    {/* Sub-View Tabs */}
-                    <div className="flex items-center gap-2 mt-4 overflow-x-auto pb-1">
-                      <button
-                        type="button"
-                        onClick={() => setBusinessSubView("overview")}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
-                          businessSubView === "overview"
-                            ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/30"
-                            : "bg-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800"
-                        }`}
-                      >
-                        <Users className="w-3.5 h-3.5" />
-                        <span>Team & User Pool ({orgMembers.length})</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setBusinessSubView("locations")}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
-                          businessSubView === "locations"
-                            ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/30"
-                            : "bg-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800"
-                        }`}
-                      >
-                        <Store className="w-3.5 h-3.5" />
-                        <span>Store Locations ({locations.length})</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setBusinessSubView("subscriptions")}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
-                          businessSubView === "subscriptions"
-                            ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/30"
-                            : "bg-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800"
-                        }`}
-                      >
-                        <Layers className="w-3.5 h-3.5" />
-                        <span>Subscriptions & Quotas ({subscriptions.length})</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setBusinessSubView("terminals")}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
-                          businessSubView === "terminals"
-                            ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/30"
-                            : "bg-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800"
-                        }`}
-                      >
-                        <Laptop className="w-3.5 h-3.5" />
-                        <span>Hardware Terminals ({devices.length})</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* VIEW 1: Team & User Pool */}
-                  {businessSubView === "overview" && (
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                      <div className="mb-4">
-                        <h3 className="text-base font-bold text-white flex items-center gap-2">
-                          <Users className="w-4 h-4 text-indigo-400" />
-                          <span>Organization User Pool & Access</span>
-                        </h3>
-                        <p className="text-xs text-slate-400">
-                          Invite staff members and manage global role permissions across this business entity.
-                        </p>
-                      </div>
-
-                      {/* Invite Member */}
-                      <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-4 mb-6">
-                        <h4 className="text-xs font-bold text-slate-300 mb-3 flex items-center space-x-2">
-                          <Mail className="w-4 h-4 text-indigo-400" />
-                          <span>Invite Individual VEX IAM Identity</span>
-                        </h4>
-                        <form onSubmit={handleInvite} className="flex gap-3 flex-col sm:flex-row">
-                          <input
-                            type="email"
-                            required
-                            value={inviteEmail}
-                            onChange={(e) => setInviteEmail(e.target.value)}
-                            placeholder="employee@domain.com"
-                            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          />
-                          <select
-                            value={inviteRole}
-                            onChange={(e) => setInviteRole(e.target.value)}
-                            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
-                          >
-                            <option value="MEMBER">MEMBER</option>
-                            <option value="ADMIN">ADMIN</option>
-                          </select>
-                          <button
-                            type="submit"
-                            className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-semibold transition"
-                          >
-                            Send Invitation
-                          </button>
-                        </form>
-
-                        {generatedInviteToken && (
-                          <div className="mt-3 p-3 bg-indigo-950/50 border border-indigo-800/50 rounded-lg text-xs">
-                            <p className="text-indigo-300 font-semibold mb-1">
-                              Secure Invitation Token Generated:
-                            </p>
-                            <p className="font-mono text-[11px] text-slate-300 break-all select-all">
-                              {generatedInviteToken}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Member Table */}
-                      <h4 className="text-sm font-bold text-slate-200 mb-3">
-                        Active User Pool ({orgMembers.length})
-                      </h4>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                          <thead>
-                            <tr className="border-b border-slate-800 text-slate-400">
-                              <th className="py-2.5">User</th>
-                              <th className="py-2.5">Email</th>
-                              <th className="py-2.5">Organization Role</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-800/50">
-                            {orgMembers.map((m) => (
-                              <tr key={m.id} className="hover:bg-slate-800/30">
-                                <td className="py-3 font-medium text-white">
-                                  {m.user?.profile?.first_name} {m.user?.profile?.last_name || "—"}
-                                </td>
-                                <td className="py-3 text-slate-400">{m.user?.email}</td>
-                                <td className="py-3">
-                                  <span
-                                    className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
-                                      m.role === "OWNER"
-                                        ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                                        : m.role === "ADMIN"
-                                        ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
-                                        : "bg-slate-700/50 text-slate-300 border border-slate-600"
-                                    }`}
-                                  >
-                                    {m.role}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* VIEW 2: Store Locations */}
-                  {businessSubView === "locations" && (
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                        <div>
-                          <h3 className="text-base font-bold text-white flex items-center gap-2">
-                            <Store className="w-4 h-4 text-emerald-400" />
-                            <span>Locations & Operating Branches ({locations.length})</span>
-                          </h3>
-                          <p className="text-xs text-slate-400">
-                            Operating scopes for POS terminals, regional licensing, and multi-branch operations.
-                          </p>
-                        </div>
-                        <button
-                          onClick={openCreateLocationModal}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition self-start sm:self-auto shadow-sm"
-                        >
-                          <PlusCircle className="w-3.5 h-3.5" />
-                          <span>Add Location</span>
-                        </button>
-                      </div>
-
-                      {locations.length === 0 ? (
-                        <div className="p-6 bg-slate-800/30 border border-slate-800 rounded-xl text-center">
-                          <MapPin className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                          <p className="text-xs text-slate-300 font-medium mb-1">No operational locations established.</p>
-                          <p className="text-[11px] text-slate-500 max-w-sm mx-auto mb-3">
-                            Hardware terminals like VEX POS require at least one active location to complete device activation.
-                          </p>
-                          <button
-                            onClick={openCreateLocationModal}
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400 hover:text-emerald-300"
-                          >
-                            <PlusCircle className="w-3.5 h-3.5" />
-                            <span>Establish First Location</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {locations.map((loc) => {
-                            const isArchived = loc.status === "ARCHIVED";
-                            const isActive = loc.status === "ACTIVE";
-                            const assignedDevicesCount = devices.filter((d) => d.location_id === loc.id).length;
-
-                            return (
-                              <div
-                                key={loc.id}
-                                className={`p-4 rounded-xl border flex flex-col justify-between transition ${
-                                  isArchived
-                                    ? "bg-slate-900/40 border-slate-800 opacity-60"
-                                    : "bg-slate-800/40 border-slate-700/60 hover:border-slate-600"
-                                }`}
-                              >
-                                <div>
-                                  <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
-                                        {loc.code}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => copyToClipboard(loc.id, loc.id)}
-                                        title="Copy Location UUID"
-                                        className="text-slate-500 hover:text-slate-300 transition"
-                                      >
-                                        {copiedOrgId === loc.id ? (
-                                          <Check className="w-3 h-3 text-emerald-400" />
-                                        ) : (
-                                          <Copy className="w-3 h-3" />
-                                        )}
-                                      </button>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span
-                                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
-                                          isActive
-                                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                            : isArchived
-                                            ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                                            : "bg-slate-700/50 text-slate-300 border-slate-600"
-                                        }`}
-                                      >
-                                        {loc.status}
-                                      </span>
-                                      <span
-                                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border flex items-center gap-1 ${
-                                          (loc.metadata as any)?.["pos.sync"] !== false && (loc.metadata as any)?.["cloud_sync"] !== false
-                                            ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
-                                            : "bg-slate-700/50 text-slate-400 border-slate-600"
-                                        }`}
-                                        title={
-                                          (loc.metadata as any)?.["pos.sync"] !== false && (loc.metadata as any)?.["cloud_sync"] !== false
-                                            ? "Cloud synchronization is authorized for this store."
-                                            : "Cloud synchronization is disabled for this store."
-                                        }
-                                      >
-                                        <Cloud className="w-2.5 h-2.5" />
-                                        <span>
-                                          {(loc.metadata as any)?.["pos.sync"] !== false && (loc.metadata as any)?.["cloud_sync"] !== false
-                                            ? "Sync Active"
-                                            : "Sync Disabled"}
-                                        </span>
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <h4 className="text-sm font-semibold text-white mb-1">{loc.name}</h4>
-                                  {loc.description && (
-                                    <p className="text-xs text-slate-400 mb-2">{loc.description}</p>
-                                  )}
-
-                                  <div className="text-[11px] text-slate-400 space-y-1 mb-3">
-                                    {(loc.address_line1 || loc.city || loc.country_code) && (
-                                      <div className="flex items-start gap-1 text-slate-300">
-                                        <MapPin className="w-3 h-3 text-emerald-400 mt-0.5 shrink-0" />
-                                        <span className="truncate">
-                                          {[loc.address_line1, loc.city, loc.state_province, loc.country_code]
-                                            .filter(Boolean)
-                                            .join(", ")}
-                                        </span>
-                                      </div>
-                                    )}
-                                    <div className="flex items-center gap-1 text-slate-400">
-                                      <Globe className="w-3 h-3 text-cyan-400 shrink-0" />
-                                      <span>Timezone: {loc.timezone || "UTC"}</span>
-                                    </div>
-                                  </div>
-
-                                  <div className="p-2 bg-slate-900/60 rounded-lg border border-slate-800/80 mb-3 flex items-center justify-between text-xs">
-                                    <span className="text-slate-400">Assigned Terminals:</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedLocationFilter(loc.id);
-                                        setBusinessSubView("terminals");
-                                      }}
-                                      className="font-mono font-bold text-indigo-400 hover:underline inline-flex items-center gap-1"
-                                    >
-                                      <span>{assignedDevicesCount} {assignedDevicesCount === 1 ? "device" : "devices"}</span>
-                                      <ArrowRight className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/60">
-                                  {!isArchived && (
-                                    <button
-                                      onClick={() => openEditLocationModal(loc)}
-                                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                                    >
-                                      <Edit2 className="w-3 h-3" />
-                                      <span>Edit</span>
-                                    </button>
-                                  )}
-                                  {!isArchived && (
-                                    <button
-                                      onClick={() => handleArchiveLocation(loc)}
-                                      title="Archive location"
-                                      className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* VIEW 3: Active Subscriptions & Commercial Plans */}
-                  {businessSubView === "subscriptions" && (
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="text-base font-bold text-white flex items-center gap-2">
-                            <Layers className="w-4 h-4 text-indigo-400" />
-                            <span>Active Subscriptions & Quotas</span>
-                          </h3>
-                          <p className="text-xs text-slate-400">
-                            Commercial application entitlements, user seat limits, and device quotas.
-                          </p>
-                        </div>
-                      </div>
-
-                      {subscriptions.length === 0 ? (
-                        <div className="p-4 bg-slate-800/30 border border-slate-800 rounded-xl text-center">
-                          <p className="text-xs text-slate-400 mb-4">No active subscriptions for this organization.</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-4 mb-6">
-                          {subscriptions.map((sub) => {
-                            const appId = sub.plan?.application_id;
-                            const appAssignments = assignments.filter(
-                              (a) => a.application_id === appId && a.status === "ACTIVE"
-                            );
-                            const usedSeats = appAssignments.length;
-                            const totalSeats = sub.plan?.user_seats || 0;
-                            const isSeatFull = totalSeats > 0 && usedSeats >= totalSeats;
-
-                            const appActiveTerminals = devices.filter((dev) =>
-                              dev.licenses?.some(
-                                (lic) =>
-                                  lic.status === "ACTIVE" &&
-                                  (!appId || lic.application_id === appId)
-                              )
-                            );
-                            const usedTerminals = appActiveTerminals.length;
-                            const totalTerminals = sub.plan?.device_seats || 0;
-                            const isTerminalQuotaReached =
-                              totalTerminals > 0 && usedTerminals >= totalTerminals;
-                            const isExpanded = expandedSubId === sub.id;
-
-                            return (
-                              <div
-                                key={sub.id}
-                                className="bg-slate-800/50 border border-slate-700/60 rounded-xl overflow-hidden transition-all duration-200"
-                              >
-                                <div
-                                  onClick={() => setExpandedSubId(isExpanded ? null : sub.id)}
-                                  className="p-5 cursor-pointer hover:bg-slate-800/80 transition flex flex-col md:flex-row md:items-center justify-between gap-4 select-none"
-                                >
-                                  <div className="space-y-1">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="text-xs font-mono font-bold text-indigo-400">
-                                        {sub.plan?.code}
-                                      </span>
-                                      <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
-                                        {sub.status}
-                                      </span>
-                                      <span className="text-[11px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
-                                        <Laptop className="w-3 h-3 text-cyan-400" />
-                                        <span>{appActiveTerminals.length} / {totalTerminals} Terminals</span>
-                                      </span>
-                                    </div>
-                                    <h4 className="text-base font-semibold text-white">{sub.plan?.name}</h4>
-                                    <p className="text-xs text-slate-400">{sub.plan?.description}</p>
-                                  </div>
-
-                                  <div className="flex items-center gap-3 self-end md:self-auto">
-                                    <span className="text-xs text-indigo-400 font-medium hidden sm:inline">
-                                      {isExpanded ? "Hide Details & Seat Allocation" : "View Details & Seat Allocation"}
-                                    </span>
-                                    <div className="p-1.5 rounded-lg bg-slate-700/50 text-slate-300">
-                                      {isExpanded ? (
-                                        <ChevronUp className="w-4 h-4 text-indigo-400" />
-                                      ) : (
-                                        <ChevronDown className="w-4 h-4 text-indigo-400" />
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Quotas Overview & User Seat Allocation */}
-                                {isExpanded && (
-                                  <div className="p-5 border-t border-slate-700/50 bg-slate-900/40 space-y-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                      {/* User Seat Bar */}
-                                      <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800">
-                                        <div className="flex items-center justify-between text-xs mb-1.5">
-                                          <span className="text-slate-300 font-medium">Assigned User Seats:</span>
-                                          <span
-                                            className={`font-mono font-bold ${
-                                              isSeatFull ? "text-amber-400" : "text-indigo-400"
-                                            }`}
-                                          >
-                                            {usedSeats} / {totalSeats} seats used
-                                          </span>
-                                        </div>
-                                        <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                          <div
-                                            className={`h-full transition-all ${
-                                              isSeatFull ? "bg-amber-400" : "bg-indigo-500"
-                                            }`}
-                                            style={{
-                                              width: `${Math.min(
-                                                100,
-                                                totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0
-                                              )}%`,
-                                            }}
-                                          />
-                                        </div>
-                                        <div className="flex items-center justify-end text-[11px] text-slate-400 mt-2">
-                                          {appId && (
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                openAssignModal(appId, sub.plan?.name || "Application");
-                                              }}
-                                              disabled={isSeatFull}
-                                              className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300 disabled:text-slate-500 transition"
-                                            >
-                                              <UserPlus className="w-3.5 h-3.5" />
-                                              <span>{isSeatFull ? "Seats Full" : "Assign User Seat"}</span>
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {/* Terminal Seat Bar */}
-                                      <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800">
-                                        <div className="flex items-center justify-between text-xs mb-1.5">
-                                          <span className="text-slate-300 font-medium flex items-center gap-1">
-                                            <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                                            <span>Licensed Terminals:</span>
-                                          </span>
-                                          <span
-                                            className={`font-mono font-bold ${
-                                              isTerminalQuotaReached ? "text-amber-400" : "text-cyan-400"
-                                            }`}
-                                          >
-                                            {usedTerminals} / {totalTerminals} terminals active
-                                          </span>
-                                        </div>
-                                        <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                          <div
-                                            className={`h-full transition-all ${
-                                              isTerminalQuotaReached ? "bg-amber-400" : "bg-cyan-500"
-                                            }`}
-                                            style={{
-                                              width: `${Math.min(
-                                                100,
-                                                totalTerminals > 0 ? (usedTerminals / totalTerminals) * 100 : 0
-                                              )}%`,
-                                            }}
-                                          />
-                                        </div>
-                                        <div className="text-[11px] text-slate-400 mt-2 flex justify-between items-center">
-                                          <span>Capacity: <strong>{totalTerminals} devices limit</strong></span>
-                                          <button
-                                            type="button"
-                                            onClick={() => setBusinessSubView("terminals")}
-                                            className="text-xs text-cyan-400 hover:underline flex items-center gap-1"
-                                          >
-                                            <span>Manage Terminals</span>
-                                            <ArrowRight className="w-3 h-3" />
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    {/* Assigned Users List */}
-                                    <div>
-                                      <h5 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                                        Assigned Users ({appAssignments.length})
-                                      </h5>
-                                      {appAssignments.length === 0 ? (
-                                        <p className="text-xs text-slate-500 italic py-1">
-                                          No members assigned yet. Users in the Active User Pool cannot access this app until assigned a seat here.
-                                        </p>
-                                      ) : (
-                                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                                          {appAssignments.map((assign) => {
-                                            const userName = assign.user?.profile
-                                              ? `${assign.user.profile.first_name} ${assign.user.profile.last_name}`
-                                              : assign.user?.email || "Unknown User";
-                                            const userEmail = assign.user?.email;
-                                            return (
-                                              <div
-                                                key={assign.id}
-                                                className="flex items-center justify-between p-2 bg-slate-900/60 border border-slate-800 rounded-lg text-xs"
-                                              >
-                                                <div className="min-w-0 pr-2">
-                                                  <div className="font-medium text-white truncate">{userName}</div>
-                                                  <div className="text-[10px] text-slate-400 truncate">{userEmail}</div>
-                                                  <div className="flex gap-1 mt-0.5">
-                                                    {assign.roles?.map((r) => (
-                                                      <span
-                                                        key={r.id}
-                                                        className="text-[9px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.2 rounded"
-                                                      >
-                                                        {r.name || r.code}
-                                                      </span>
-                                                    ))}
-                                                  </div>
-                                                </div>
-                                                <button
-                                                  onClick={() => handleRevokeAssignment(assign.id, userName)}
-                                                  title="Revoke seat access"
-                                                  className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition"
-                                                >
-                                                  <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* Available Plans to Buy / Subscribe */}
-                      <div className="border-t border-slate-800 pt-5">
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
-                          Subscribe to an Ecosystem Plan
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          {plans.map((p) => (
-                            <div
-                              key={p.id}
-                              className="p-3.5 bg-slate-800/30 border border-slate-700/40 rounded-xl flex flex-col justify-between hover:border-slate-600 transition"
-                            >
-                              <div>
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="font-mono text-[10px] text-indigo-400">{p.code}</span>
-                                </div>
-                                <h5 className="font-semibold text-xs text-white">{p.name}</h5>
-                                <p className="text-[11px] text-slate-400 my-1">{p.description}</p>
-                                <div className="text-[10px] text-slate-300 space-y-0.5 my-2">
-                                  <div>• {p.user_seats} User Seats</div>
-                                  <div>• {p.device_seats} Device Terminal Quota</div>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => handleBuySubscription(p.id)}
-                                disabled={subscribingPlanId === p.id}
-                                className="w-full mt-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-lg text-xs font-semibold py-1.5 transition"
-                              >
-                                {subscribingPlanId === p.id ? "Activating..." : "Subscribe / Purchase"}
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* VIEW 4: Hardware Terminals & POS Devices */}
-                  {businessSubView === "terminals" && (
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                          <h3 className="text-base font-bold text-white flex items-center gap-2">
-                            <Laptop className="w-4 h-4 text-cyan-400" />
-                            <span>Hardware Terminals & POS Devices ({devices.length})</span>
-                          </h3>
-                          <p className="text-xs text-slate-400">
-                            Manage hardware fingerprints, store location assignments, sync tokens, and cryptographic offline licenses.
-                          </p>
-                        </div>
-
-                        {/* Location Quick Filter */}
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs text-slate-400 font-medium">Filter by Store:</label>
-                          <select
-                            value={selectedLocationFilter}
-                            onChange={(e) => setSelectedLocationFilter(e.target.value)}
-                            className="bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 px-2.5 py-1.5 focus:outline-none focus:border-indigo-500"
-                          >
-                            <option value="ALL">All Locations ({devices.length})</option>
-                            <option value="UNASSIGNED">Unassigned Scope</option>
-                            {locations.map((loc) => {
-                              const count = devices.filter((d) => d.location_id === loc.id).length;
-                              return (
-                                <option key={loc.id} value={loc.id}>
-                                  {loc.name} ({count})
-                                </option>
-                              );
-                            })}
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Device List Filtered */}
-                      {(() => {
-                        const filteredDevices = devices.filter((dev) => {
-                          if (selectedLocationFilter === "ALL") return true;
-                          if (selectedLocationFilter === "UNASSIGNED") return !dev.location_id;
-                          return dev.location_id === selectedLocationFilter;
-                        });
-
-                        return filteredDevices.length === 0 ? (
-                          <div className="p-8 bg-slate-800/30 border border-slate-800 rounded-xl text-center">
-                            <Laptop className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                            <p className="text-xs text-slate-300 font-medium mb-1">No hardware terminals found in this scope.</p>
-                            <p className="text-[11px] text-slate-500">
-                              Register a physical device below using its hardware fingerprint.
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            {filteredDevices.map((dev) => {
-                              const subLic = dev.licenses?.[0];
-                              const hasActiveLicense = subLic?.status === "ACTIVE";
-                              const assignedLoc = locations.find((l) => l.id === dev.location_id);
-
-                              return (
-                                <div
-                                  key={dev.id}
-                                  className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-slate-600 transition"
-                                >
-                                  <div className="space-y-1.5 flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <h6 className="font-semibold text-sm text-white">{dev.name}</h6>
-                                      <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-semibold">
-                                        {dev.status}
-                                      </span>
-                                      {hasActiveLicense ? (
-                                        <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded font-semibold flex items-center gap-1">
-                                          <CheckCircle2 className="w-3 h-3 text-cyan-400" />
-                                          <span>License Active</span>
-                                        </span>
-                                      ) : (
-                                        <span className="text-[10px] bg-slate-500/10 text-slate-400 border border-slate-500/20 px-2 py-0.5 rounded font-semibold">
-                                          Unlicensed
-                                        </span>
-                                      )}
-                                    </div>
-
-                                    <div className="flex items-center gap-3 text-[11px] text-slate-400 flex-wrap">
-                                      <p className="font-mono truncate">
-                                        Fingerprint: {dev.fingerprint}
-                                      </p>
-                                      <span className="text-slate-600">•</span>
-                                      <div className="flex items-center gap-1.5" title={`Last check-in: ${dev.last_heartbeat_at || "Never"}`}>
-                                        <Activity
-                                          className={`w-3.5 h-3.5 ${
-                                            dev.last_heartbeat_at ? "text-emerald-400" : "text-slate-500"
-                                          }`}
-                                        />
-                                        <span>
-                                          Heartbeat:{" "}
-                                          <strong className={dev.last_heartbeat_at ? "text-slate-300 font-medium" : "text-slate-500 font-normal"}>
-                                            {formatHeartbeatTime(dev.last_heartbeat_at)}
-                                          </strong>
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    {/* Location Assignment & Authoritative POS Operating Mode */}
-                                    <div className="flex items-center gap-3 pt-1 flex-wrap">
-                                      <div className="flex items-center gap-1.5">
-                                        <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                        <span className="text-[11px] text-slate-400">Store:</span>
-                                        <select
-                                          value={dev.location_id || ""}
-                                          onChange={(e) => handleReassignDevice(dev.id, e.target.value)}
-                                          className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-1 focus:outline-none focus:border-emerald-500"
-                                        >
-                                          <option value="">Unassigned (Org Scope)</option>
-                                          {locations.map((l) => (
-                                            <option key={l.id} value={l.id}>
-                                              {l.name} ({l.code}) {l.status === "ARCHIVED" ? "[Archived]" : ""}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-[11px] text-slate-400">Mode:</span>
-                                        <select
-                                          value={dev.menu_mode || (assignedLoc?.pos_default_mode || "LOCAL")}
-                                          onChange={(e) => handleUpdateDeviceMenuMode(dev.id, e.target.value)}
-                                          className={`border text-xs rounded-lg px-2 py-1 focus:outline-none ${
-                                            (dev.menu_mode || assignedLoc?.pos_default_mode) === "CLOUD"
-                                              ? "bg-indigo-950/60 border-indigo-700/60 text-indigo-300 focus:border-indigo-500"
-                                              : "bg-slate-900 border-slate-700 text-slate-200 focus:border-emerald-500"
-                                          }`}
-                                        >
-                                          <option value="LOCAL">Local POS</option>
-                                          <option value="CLOUD">Cloud Replica POS</option>
-                                        </select>
-                                        <span
-                                          className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold border ${
-                                            (dev.effective_menu_mode || dev.menu_mode || assignedLoc?.pos_default_mode) === "CLOUD"
-                                              ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
-                                              : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                                          }`}
-                                          title="Authoritative effective POS operating mode resolved against location deployment policy"
-                                        >
-                                          Effective: {dev.effective_menu_mode || dev.menu_mode || assignedLoc?.pos_default_mode || "LOCAL"}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Terminal Actions */}
-                                  <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
-                                    {applications.length > 0 && (
-                                      <button
-                                        onClick={() => handleIssueLicense(dev.id, applications[0].id)}
-                                        className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
-                                      >
-                                        <KeyRound className="w-3.5 h-3.5" />
-                                        <span>{hasActiveLicense ? "Renew License" : "Issue License"}</span>
-                                      </button>
-                                    )}
-
-                                    {dev.sync_enabled || (activatedSyncTicket && activatedSyncTicket.device_id === dev.id) ? (
-                                      <button
-                                        onClick={() => handleDeactivatePosSync(dev.id)}
-                                        disabled={syncActivatingDeviceId === dev.id}
-                                        title="Disable POS Cloud Synchronization for this terminal"
-                                        className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-600 disabled:bg-slate-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm border border-rose-500/30"
-                                      >
-                                        <CloudOff className="w-3.5 h-3.5" />
-                                        <span>{syncActivatingDeviceId === dev.id ? "Updating..." : "Disable Sync"}</span>
-                                      </button>
-                                    ) : (
-                                      <button
-                                        onClick={() => handleActivatePosSync(dev.id, "VEX-POS")}
-                                        disabled={syncActivatingDeviceId === dev.id}
-                                        title="Activate POS Cloud Synchronization ticket via VEX IAM authority"
-                                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm"
-                                      >
-                                        <RefreshCw className={`w-3.5 h-3.5 ${syncActivatingDeviceId === dev.id ? "animate-spin" : ""}`} />
-                                        <span>{syncActivatingDeviceId === dev.id ? "Activating..." : "Activate Sync"}</span>
-                                      </button>
-                                    )}
-
-                                    <button
-                                      onClick={() => handleDeleteDevice(dev.id, dev.name)}
-                                      title="Delete registered device"
-                                      className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 rounded-lg text-xs font-semibold transition flex items-center gap-1"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })()}
-
-                      {/* Activated License Display */}
-                      {activatedLicense && (
-                        <div className="p-4 bg-cyan-950/40 border border-cyan-800/50 rounded-xl">
-                          <p className="text-xs font-bold text-cyan-300 mb-1 flex items-center gap-1.5">
-                            <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-                            <span>Generated Cryptographic Ed25519 Offline License:</span>
-                          </p>
-                          <p className="text-[11px] text-slate-300 mb-2">
-                            Install this license on the VEX POS terminal. It verifies offline cryptographically for 30 days.
-                          </p>
-                          <textarea
-                            readOnly
-                            rows={3}
-                            value={activatedLicense}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono text-[11px] text-cyan-200 select-all"
-                          />
-                        </div>
-                      )}
-
-                      {/* Activated POS Sync Ticket Display */}
-                      {activatedSyncTicket && (
-                        <div className="p-4 bg-indigo-950/40 border border-indigo-800/50 rounded-xl">
-                          <p className="text-xs font-bold text-indigo-300 mb-1 flex items-center gap-1.5">
-                            <CheckCircle2 className="w-4 h-4 text-indigo-400" />
-                            <span>Activated POS Cloud Synchronization Ticket:</span>
-                          </p>
-                          <p className="text-[11px] text-slate-300 mb-1">
-                            Sync Gateway: <strong className="font-mono text-indigo-300">{activatedSyncTicket.sync_endpoint}</strong>
-                          </p>
-                          <p className="text-[10px] text-slate-400 mb-2">
-                            Expires: {new Date(activatedSyncTicket.expires_at).toLocaleString()}
-                          </p>
-                          <textarea
-                            readOnly
-                            rows={3}
-                            value={activatedSyncTicket.signed_ticket}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 font-mono text-[11px] text-indigo-200 select-all"
-                          />
-                        </div>
-                      )}
-
-                      {/* Register New Terminal Form */}
-                      <div className="border-t border-slate-800 pt-5">
-                        <h6 className="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
-                          <PlusCircle className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Register New Hardware Terminal</span>
-                        </h6>
-                        <form onSubmit={handleRegisterDevice} className="grid grid-cols-1 md:grid-cols-4 gap-2.5">
-                          <input
-                            type="text"
-                            required
-                            value={newDeviceName}
-                            onChange={(e) => setNewDeviceName(e.target.value)}
-                            placeholder="Device Name (e.g. Counter POS #1)"
-                            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
-                          />
-                          <input
-                            type="text"
-                            required
-                            value={newDeviceFingerprint}
-                            onChange={(e) => setNewDeviceFingerprint(e.target.value)}
-                            placeholder="Hardware Fingerprint (e.g. HW-8934FA-X)"
-                            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
-                          />
-                          <input
-                            type="text"
-                            required
-                            value={newDevicePublicKey}
-                            onChange={(e) => setNewDevicePublicKey(e.target.value)}
-                            placeholder="Device Ed25519 Public Key"
-                            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
-                          />
-                          <button
-                            type="submit"
-                            className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold py-1.5 transition shadow-sm"
-                          >
-                            Register Terminal
-                          </button>
-                        </form>
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-400">
-                  Select a business entity from the left sidebar to manage its profile, locations, subscriptions, and terminals.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        )}
-
-        {/* Tab 3: Applications Catalog */}
-        {activeTab === "apps" && (
-          <div className="space-y-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                <div>
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                    <Layers className="w-5 h-5 text-indigo-400" />
-                    <span>Official Vexxero Ecosystem Applications</span>
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Verified first-party software authorized and integrated with VEX IAM OAuth 2.1 / OIDC. Managed centrally by Vexxero Technologies.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Verified Ecosystem
-                  </span>
-                </div>
+            <form onSubmit={handleCreateOrg} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Business Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={newOrgName}
+                  onChange={(e) => setNewOrgName(e.target.value)}
+                  placeholder="e.g. B & B Cafe"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {applications.map((app) => (
-                  <div
-                    key={app.id}
-                    className="p-5 bg-slate-800/40 border border-slate-700/60 rounded-xl hover:border-slate-600 transition flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded border border-indigo-500/20">
-                          {app.code}
-                        </span>
-                        <span className="text-[11px] font-medium text-slate-400 px-2 py-0.5 rounded bg-slate-800 border border-slate-700">
-                          {app.type}
-                        </span>
-                      </div>
-                      <h3 className="font-semibold text-base text-white mb-2">{app.name}</h3>
-                      <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                        {app.description || "Official client integrated with VEX IAM authentication and access control."}
-                      </p>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                        VEX IAM Ready
-                      </span>
-                      <span className="font-mono text-[10px]">Ed25519 / OIDC</span>
-                    </div>
-                  </div>
-                ))}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Registration Number</label>
+                <input
+                  type="text"
+                  value={newOrgReg}
+                  onChange={(e) => setNewOrgReg(e.target.value)}
+                  placeholder="e.g. REG-987654"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                />
               </div>
-            </div>
-          </div>
-        )}
-        {/* Location Add / Edit Modal */}
-        {locationModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl my-8">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Store className="w-4 h-4 text-emerald-400" />
-                    <span>{editingLocation ? "Edit Operating Location" : "Establish New Location"}</span>
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {editingLocation
-                      ? `Updating details for location branch "${editingLocation.code}".`
-                      : `Add a store branch or service location for ${selectedOrg?.name || "organization"}.`}
-                  </p>
-                </div>
+
+              <div className="flex gap-2 pt-2">
                 <button
-                  onClick={() => setLocationModalOpen(false)}
-                  className="text-slate-400 hover:text-white p-1 rounded-lg"
+                  type="button"
+                  onClick={() => setCreateOrgModalOpen(false)}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2.5 rounded-xl transition"
                 >
-                  <X className="w-5 h-5" />
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newOrgName.trim()}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white text-xs font-semibold py-2.5 rounded-xl transition shadow-sm shadow-indigo-600/30"
+                >
+                  Establish Entity
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
 
-              {locError && (
-                <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{locError}</span>
-                </div>
-              )}
+      {/* Location Modal */}
+      {locationModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Store className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-bold text-white">
+                  {editingLocation ? `Edit Location: ${editingLocation.code}` : "Establish Store Location"}
+                </h3>
+              </div>
+              <button
+                onClick={() => setLocationModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-              <form onSubmit={handleSaveLocation} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Location Code <span className="text-rose-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      disabled={!!editingLocation}
-                      value={locCode}
-                      onChange={(e) => setLocCode(e.target.value.toUpperCase())}
-                      placeholder="e.g. MAIN, BRANCH-01"
-                      className="w-full bg-slate-800 border border-slate-700 disabled:opacity-50 text-white text-xs rounded-xl px-3 py-2.5 font-mono focus:outline-none focus:border-emerald-500"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-0.5">Unique identifier inside organization</p>
-                  </div>
+            {locError && (
+              <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center text-xs text-rose-400">
+                <AlertCircle className="w-4 h-4 mr-2 shrink-0" />
+                <span>{locError}</span>
+              </div>
+            )}
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Location Name <span className="text-rose-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={locName}
-                      onChange={(e) => setLocName(e.target.value)}
-                      placeholder="e.g. Colombo Head Branch"
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                </div>
-
+            <form onSubmit={handleSaveLocation} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Description</label>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Location Code *</label>
                   <input
                     type="text"
-                    value={locDescription}
-                    onChange={(e) => setLocDescription(e.target.value)}
-                    placeholder="e.g. Flagship retail outlet & cashier counter"
-                    className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
+                    required
+                    disabled={!!editingLocation}
+                    value={locCode}
+                    onChange={(e) => setLocCode(e.target.value.toUpperCase())}
+                    placeholder="MAIN-OUTLET"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500 disabled:opacity-50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Location Display Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={locName}
+                    onChange={(e) => setLocName(e.target.value)}
+                    placeholder="Colombo 03 Branch"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Description</label>
+                <input
+                  type="text"
+                  value={locDescription}
+                  onChange={(e) => setLocDescription(e.target.value)}
+                  placeholder="Primary café outlet & takeout counter"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Address Line 1</label>
+                  <input
+                    type="text"
+                    value={locAddress1}
+                    onChange={(e) => setLocAddress1(e.target.value)}
+                    placeholder="No. 45 Galle Road"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">City</label>
+                  <input
+                    type="text"
+                    value={locCity}
+                    onChange={(e) => setLocCity(e.target.value)}
+                    placeholder="Colombo"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Country Code</label>
+                  <input
+                    type="text"
+                    maxLength={2}
+                    value={locCountry}
+                    onChange={(e) => setLocCountry(e.target.value.toUpperCase())}
+                    placeholder="LK"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Timezone</label>
+                  <input
+                    type="text"
+                    value={locTimezone}
+                    onChange={(e) => setLocTimezone(e.target.value)}
+                    placeholder="Asia/Colombo"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Branch Status</label>
+                  <select
+                    value={locStatus}
+                    onChange={(e) => setLocStatus(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="ARCHIVED">ARCHIVED</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Cloud Sync and POS Mode Policy */}
+              <div className="pt-2 border-t border-slate-800 space-y-3">
+                <div className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800">
+                  <div>
+                    <div className="text-xs font-semibold text-white">Authorize Cloud POS Synchronization</div>
+                    <div className="text-[10px] text-slate-400">Allow terminals at this branch to sync transactions with VEX Cloud</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={locSyncEnabled}
+                    onChange={(e) => setLocSyncEnabled(e.target.checked)}
+                    className="w-4 h-4 rounded text-emerald-600 focus:ring-0 cursor-pointer"
                   />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Address Line 1</label>
-                    <input
-                      type="text"
-                      value={locAddress1}
-                      onChange={(e) => setLocAddress1(e.target.value)}
-                      placeholder="e.g. 100 Galle Road"
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
-                    />
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Terminal Mode Policy</label>
+                    <select
+                      value={locPosModePolicy}
+                      onChange={(e) => setLocPosModePolicy(e.target.value as any)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="ANY_ALLOWED">ANY_ALLOWED (Operator Choice)</option>
+                      <option value="LOCAL_ONLY">LOCAL_ONLY (Enforce Standalone)</option>
+                      <option value="CLOUD_ONLY">CLOUD_ONLY (Enforce Centralized)</option>
+                    </select>
                   </div>
-
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Address Line 2</label>
-                    <input
-                      type="text"
-                      value={locAddress2}
-                      onChange={(e) => setLocAddress2(e.target.value)}
-                      placeholder="Floor, Unit, etc."
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
-                    />
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Default Menu Mode</label>
+                    <select
+                      value={locPosDefaultMode}
+                      onChange={(e) => setLocPosDefaultMode(e.target.value as any)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="LOCAL">Local POS</option>
+                      <option value="CLOUD">Cloud Replica POS</option>
+                    </select>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">City</label>
-                    <input
-                      type="text"
-                      value={locCity}
-                      onChange={(e) => setLocCity(e.target.value)}
-                      placeholder="Colombo"
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Province/State</label>
-                    <input
-                      type="text"
-                      value={locState}
-                      onChange={(e) => setLocState(e.target.value)}
-                      placeholder="Western"
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Country</label>
-                    <input
-                      type="text"
-                      maxLength={10}
-                      value={locCountry}
-                      onChange={(e) => setLocCountry(e.target.value.toUpperCase())}
-                      placeholder="LK"
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 uppercase"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Timezone</label>
-                    <input
-                      type="text"
-                      required
-                      value={locTimezone}
-                      onChange={(e) => setLocTimezone(e.target.value)}
-                      placeholder="Asia/Colombo"
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  {editingLocation && (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">Status</label>
-                      <select
-                        value={locStatus}
-                        onChange={(e) => setLocStatus(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-emerald-500"
-                      >
-                        <option value="ACTIVE">ACTIVE</option>
-                        <option value="INACTIVE">INACTIVE</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                {/* Location POS Mode Policy & Default Governance */}
-                <div className="bg-slate-800/40 border border-slate-700/60 p-3.5 rounded-xl space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Laptop className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs font-semibold text-white">POS Operating Mode Policy & Defaults</span>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Deployment Policy</label>
-                      <select
-                        value={locPosModePolicy}
-                        onChange={(e) => setLocPosModePolicy(e.target.value as any)}
-                        className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-emerald-500"
-                      >
-                        <option value="ANY_ALLOWED">Flexible (Local or Cloud Allowed)</option>
-                        <option value="LOCAL_ONLY">Strict Local (Force all terminals to Local)</option>
-                        <option value="CLOUD_ONLY">Strict Cloud (Force all terminals to Cloud)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Default Terminal Mode</label>
-                      <select
-                        value={locPosDefaultMode}
-                        onChange={(e) => setLocPosDefaultMode(e.target.value as any)}
-                        className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-emerald-500"
-                      >
-                        <option value="LOCAL">Local POS</option>
-                        <option value="CLOUD">Cloud Replica POS</option>
-                      </select>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-slate-400 leading-normal">
-                    The location serves as the policy authority. Terminals assigned to this location will inherit the default mode unless individually overridden within permitted bounds.
-                  </p>
-                </div>
-
-                {/* Cloud Sync Feature Flag for Store */}
-                <div className="bg-slate-800/40 border border-slate-700/60 p-3.5 rounded-xl">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={locSyncEnabled}
-                      onChange={(e) => setLocSyncEnabled(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded bg-slate-800 border-slate-600 text-indigo-600 focus:ring-0"
-                    />
-                    <div>
-                      <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                        <Cloud className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Authorize POS Cloud Synchronization (pos.sync)</span>
-                      </span>
-                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                        When active, registered hardware terminals at this location are entitled to obtain cloud sync tickets. If unpurchased or disabled, POS devices will keep events locally queued.
-                      </p>
-                    </div>
-                  </label>
-                </div>
-
-                <div className="flex gap-2 pt-3 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setLocationModalOpen(false)}
-                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2.5 rounded-xl transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={locLoading || !locCode || !locName}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-white text-xs font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-1 shadow-sm"
-                  >
-                    {locLoading ? "Saving..." : editingLocation ? "Update Location" : "Create Location"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Assign User to Application Modal */}
-        {assigningApp && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <UserPlus className="w-4 h-4 text-indigo-400" />
-                    <span>Assign Seat: {assigningApp.name}</span>
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Grant an organization member application access and assign their role.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setAssigningApp(null)}
-                  className="text-slate-400 hover:text-white p-1 rounded-lg"
-                >
-                  <X className="w-5 h-5" />
-                </button>
               </div>
 
-              <form onSubmit={handleAssignUser} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Select Member from Active User Pool
-                  </label>
-                  <select
-                    value={assignUserId}
-                    onChange={(e) => setAssignUserId(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500"
-                    required
-                  >
-                    {orgMembers.map((m) => {
-                      const name = m.user?.profile
-                        ? `${m.user.profile.first_name} ${m.user.profile.last_name}`
-                        : m.user?.email || m.user_id;
-                      return (
-                        <option key={m.id} value={m.user_id}>
-                          {name} ({m.user?.email || "No email"}) — [{m.role}]
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Application Role
-                  </label>
-                  {availableRoles.length > 0 ? (
-                    <select
-                      value={assignRoleId}
-                      onChange={(e) => setAssignRoleId(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-500"
-                    >
-                      {availableRoles.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name} ({r.code})
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic bg-slate-800/40 p-2 rounded-lg">
-                      No specific roles defined. Member will receive default access.
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setAssigningApp(null)}
-                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2.5 rounded-xl transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={assignLoading || !assignUserId}
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white text-xs font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-1"
-                  >
-                    {assignLoading ? "Assigning..." : "Confirm Seat"}
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div className="flex gap-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setLocationModalOpen(false)}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2.5 rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={locLoading || !locCode || !locName}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-white text-xs font-semibold py-2.5 rounded-xl transition shadow-sm shadow-emerald-600/30"
+                >
+                  {locLoading ? "Saving..." : editingLocation ? "Update Location" : "Create Location"}
+                </button>
+              </div>
+            </form>
           </div>
-        )}
-      </main>
+        </div>
+      )}
+
+      {/* Assign User Seat Modal */}
+      {assigningApp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-indigo-400" />
+                <span>Assign Seat: {assigningApp.name}</span>
+              </h3>
+              <button
+                onClick={() => setAssigningApp(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAssignUser} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Select Member from User Pool</label>
+                <select
+                  value={assignUserId}
+                  onChange={(e) => setAssignUserId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  required
+                >
+                  {orgMembers.map((m) => {
+                    const name = m.user?.profile
+                      ? `${m.user.profile.first_name} ${m.user.profile.last_name}`
+                      : m.user?.email || m.user_id;
+                    return (
+                      <option key={m.id} value={m.user_id}>
+                        {name} ({m.user?.email}) — [{m.role}]
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Application Role</label>
+                {availableRoles.length > 0 ? (
+                  <select
+                    value={assignRoleId}
+                    onChange={(e) => setAssignRoleId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    {availableRoles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name} ({r.code})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-xs text-slate-400 italic bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                    No application-specific roles configured. Default workspace permissions apply.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAssigningApp(null)}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold py-2.5 rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={assignLoading || !assignUserId}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white text-xs font-semibold py-2.5 rounded-xl transition shadow-sm shadow-indigo-600/30"
+                >
+                  {assignLoading ? "Assigning..." : "Confirm Seat"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
