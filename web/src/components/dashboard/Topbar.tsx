@@ -11,8 +11,11 @@ import {
   Check,
   Search,
   Sparkles,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { User, Organization, MainNavSection } from "@/types";
+import { useTheme } from "@/components/theme-provider";
 
 interface TopbarProps {
   user: User;
@@ -44,10 +47,11 @@ export function Topbar({
   onNavigateSection,
 }: TopbarProps) {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
   const currentMeta = sectionTitles[activeSection] || { title: "Workspace", category: "IAM" };
 
   return (
-    <header className="h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80 px-6 flex items-center justify-between shrink-0 sticky top-0 z-30">
+    <header className="h-16 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80 px-6 flex items-center justify-between shrink-0 sticky top-0 z-30 transition-colors">
       {/* Breadcrumb Navigation */}
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs">
         <span className="text-slate-400 font-medium">VEX IAM</span>
@@ -75,7 +79,21 @@ export function Topbar({
       </nav>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        {/* Theme Toggle Button */}
+        <button
+          type="button"
+          onClick={toggleTheme}
+          title={theme === "dark" ? "Switch to Light Theme" : "Switch to Dark Theme"}
+          className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white transition flex items-center justify-center shadow-sm"
+        >
+          {theme === "dark" ? (
+            <Sun className="w-4 h-4 text-amber-400" />
+          ) : (
+            <Moon className="w-4 h-4 text-indigo-600" />
+          )}
+        </button>
+
         {/* User Identity Pill */}
         <div className="relative">
           <button
@@ -119,6 +137,26 @@ export function Topbar({
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
                 <span>Identity Profile</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setUserDropdownOpen(false);
+                  toggleTheme();
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg flex items-center gap-2"
+              >
+                {theme === "dark" ? (
+                  <>
+                    <Sun className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Light Theme Mode</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Dark Theme Mode</span>
+                  </>
+                )}
               </button>
 
               <button
