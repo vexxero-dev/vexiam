@@ -1,13 +1,149 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #0f172a;
+  /* =====================================================================
+     VEX IAM Enterprise Design System Tokens
+     Inspired by Linear, Stripe, and Vercel
+     ===================================================================== */
+
+  /* Neutral Surface Stack (Light Theme: Crisp Cool Neutrals) */
+  --bg-app: #f4f6f8;             /* Cool neutral workspace background (distinct from pure white) */
+  --bg-canvas: #eef2f6;          /* Slightly deeper canvas/inset areas */
+  --bg-surface: #ffffff;         /* Pure crisp white card/surface */
+  --bg-surface-raised: #ffffff;  /* Modals, popovers, elevated surfaces */
+  --bg-surface-hover: #f1f5f9;   /* Hover state on white surfaces */
+  --bg-surface-active: #e2e8f0;  /* Active/pressed surface */
+  --bg-muted: #f8fafc;           /* Subtle table headers, secondary blocks */
+
+  /* Navigation & Frame */
+  --bg-nav: #ffffff;             /* Topbar background */
+  --bg-nav-blur: rgba(255, 255, 255, 0.88);
+  --bg-sidebar: #0f172a;         /* High-contrast crisp enterprise dark sidebar for authority */
+  --bg-sidebar-hover: #1e293b;
+  --bg-sidebar-active: #2e1065;  /* Deep purple active background in sidebar */
+
+  /* Typography & Foreground Contrast (WCAG AA compliant) */
+  --fg-primary: #0f172a;         /* Main headings, primary labels (14.2:1 on #f4f6f8) */
+  --fg-secondary: #334155;       /* Body text, readable secondary content (7.6:1) */
+  --fg-muted: #64748b;           /* Metadata, timestamps, helper text (4.6:1 WCAG AA) */
+  --fg-subtle: #94a3b8;          /* Inactive icons, subtle hints */
+  --fg-on-brand: #ffffff;        /* Text on purple brand elements */
+
+  /* Borders & Dividers */
+  --border-subtle: #e2e8f0;      /* Card & section dividers */
+  --border-strong: #cbd5e1;      /* Input outlines, distinct containers */
+  --border-active: #94a3b8;      /* Focused or active boundaries */
+
+  /* Brand Colors: VEX Enterprise Purple */
+  --brand-50: #f5f3ff;
+  --brand-100: #ede9fe;
+  --brand-200: #ddd6fe;
+  --brand-300: #c4b5fd;
+  --brand-400: #a78bfa;
+  --brand-500: #8b5cf6;
+  --brand-600: #7c3aed;          /* Primary VEX brand purple */
+  --brand-700: #6d28d9;
+  --brand-800: #5b21b6;
+  --brand-900: #4c1d95;
+  --brand-glow: rgba(124, 58, 237, 0.16);
+
+  /* Status Colors (Light Theme) */
+  --status-emerald-bg: #ecfdf5;
+  --status-emerald-fg: #047857;
+  --status-emerald-border: #a7f3d0;
+
+  --status-amber-bg: #fffbeb;
+  --status-amber-fg: #b45309;
+  --status-amber-border: #fde68a;
+
+  --status-rose-bg: #fff1f2;
+  --status-rose-fg: #be123c;
+  --status-rose-border: #fecdd3;
+
+  --status-indigo-bg: #eff6ff;
+  --status-indigo-fg: #1d4ed8;
+  --status-indigo-border: #bfdbfe;
+
+  /* Shadows (Refined, Layered, Non-Muddy) */
+  --shadow-card: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.05);
+  --shadow-card-hover: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+  --shadow-modal: 0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08);
+
+  /* Hero Gradient */
+  --hero-bg: linear-gradient(135deg, #ffffff 0%, #f5f3ff 50%, #eff6ff 100%);
+  --hero-border: #ddd6fe;
+
+  --background: var(--bg-app);
+  --foreground: var(--fg-primary);
 }
 
+/* =====================================================================
+   Dark Theme Design Tokens
+   ===================================================================== */
 .dark {
-  --background: #020617;
-  --foreground: #f8fafc;
+  --bg-app: #030712;             /* Deep slate obsidian */
+  --bg-canvas: #090d16;
+  --bg-surface: #0f172a;         /* High-contrast cards */
+  --bg-surface-raised: #1e293b;
+  --bg-surface-hover: #1e293b;
+  --bg-surface-active: #334155;
+  --bg-muted: #0b1120;
+
+  --bg-nav: #0b1120;
+  --bg-nav-blur: rgba(11, 17, 32, 0.85);
+  --bg-sidebar: #090d16;
+  --bg-sidebar-hover: #1e293b;
+  --bg-sidebar-active: rgba(124, 58, 237, 0.25);
+
+  --fg-primary: #f8fafc;
+  --fg-secondary: #cbd5e1;
+  --fg-muted: #94a3b8;
+  --fg-subtle: #64748b;
+  --fg-on-brand: #ffffff;
+
+  --border-subtle: #1e293b;
+  --border-strong: #334155;
+  --border-active: #475569;
+
+  /* Brand Colors in Dark Theme */
+  --brand-50: #2e1065;
+  --brand-100: #3b0764;
+  --brand-200: #581c87;
+  --brand-300: #6b21a8;
+  --brand-400: #9333ea;
+  --brand-500: #a855f7;
+  --brand-600: #7c3aed;
+  --brand-700: #6d28d9;
+  --brand-800: #5b21b6;
+  --brand-900: #4c1d95;
+  --brand-glow: rgba(124, 58, 237, 0.3);
+
+  /* Status Colors (Dark Theme) */
+  --status-emerald-bg: rgba(16, 185, 129, 0.1);
+  --status-emerald-fg: #34d399;
+  --status-emerald-border: rgba(16, 185, 129, 0.25);
+
+  --status-amber-bg: rgba(245, 158, 11, 0.1);
+  --status-amber-fg: #fbbf24;
+  --status-amber-border: rgba(245, 158, 11, 0.25);
+
+  --status-rose-bg: rgba(244, 63, 94, 0.1);
+  --status-rose-fg: #fb7185;
+  --status-rose-border: rgba(244, 63, 94, 0.25);
+
+  --status-indigo-bg: rgba(99, 102, 241, 0.1);
+  --status-indigo-fg: #818cf8;
+  --status-indigo-border: rgba(99, 102, 241, 0.25);
+
+  --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+  --shadow-card-hover: 0 4px 10px 0 rgba(0, 0, 0, 0.5);
+  --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+
+  --hero-bg: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+  --hero-border: #1e293b;
+
+  --background: var(--bg-app);
+  --foreground: var(--fg-primary);
 }
 
 @theme inline {
@@ -20,36 +156,46 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Light Theme Overrides for Enterprise SaaS Clarity */
+/* =====================================================================
+   Light Theme Enterprise Rules: Clean Layering & High-Contrast Cards
+   ===================================================================== */
 html.light body {
-  background-color: #f8fafc;
+  background-color: #f4f6f8;
   color: #0f172a;
 }
 
+/* Main app canvas container */
 html.light .bg-slate-950 {
-  background-color: #f8fafc !important;
+  background-color: #f4f6f8 !important;
 }
 
+/* Primary card and component surfaces */
 html.light .bg-slate-900 {
   background-color: #ffffff !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
 }
 
+html.light .bg-slate-900\/90,
+html.light .bg-slate-900\/80,
 html.light .bg-slate-900\/60,
-html.light .bg-slate-900\/40,
-html.light .bg-slate-900\/90 {
+html.light .bg-slate-900\/40 {
   background-color: #ffffff !important;
 }
 
+/* Inset / secondary pill / secondary buttons */
 html.light .bg-slate-800,
-html.light .bg-slate-800\/40,
+html.light .bg-slate-800\/80,
 html.light .bg-slate-800\/60,
-html.light .bg-slate-800\/80 {
+html.light .bg-slate-800\/40 {
   background-color: #f1f5f9 !important;
 }
 
+/* Distinct, refined borders */
 html.light .border-slate-800,
 html.light .border-slate-800\/80,
 html.light .border-slate-800\/60,
@@ -64,7 +210,19 @@ html.light .border-slate-700\/40 {
   border-color: #cbd5e1 !important;
 }
 
+/* Dividers */
+html.light .divide-slate-800,
+html.light .divide-slate-800\/60,
+html.light .divide-slate-800\/50 {
+  border-color: #e2e8f0 !important;
+}
+
+/* High Contrast Text Styles */
 html.light .text-white {
+  color: #0f172a !important;
+}
+
+html.light .text-slate-100 {
   color: #0f172a !important;
 }
 
@@ -84,21 +242,161 @@ html.light .text-slate-500 {
   color: #64748b !important;
 }
 
-html.light .divide-slate-800,
-html.light .divide-slate-800\/60,
-html.light .divide-slate-800\/50 {
+html.light .text-slate-600 {
+  color: #94a3b8 !important;
+}
+
+/* Topbar Header in Light Mode: Distinct, Clean Glass */
+html.light header {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  border-bottom-color: #e2e8f0 !important;
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.04) !important;
+}
+
+/* Sidebar in Light Mode: Crisp Slate Clean Sidebar */
+html.light aside {
+  background-color: #ffffff !important;
+  border-right-color: #e2e8f0 !important;
+  box-shadow: 1px 0 3px 0 rgba(15, 23, 42, 0.03) !important;
+}
+
+html.light aside .text-white {
+  color: #0f172a !important;
+}
+
+html.light aside .border-slate-800 {
   border-color: #e2e8f0 !important;
 }
 
-html.light input,
+/* Inset boxes in Light mode */
+html.light .bg-slate-950\/60,
+html.light .bg-slate-950\/40,
+html.light .bg-slate-950\/80 {
+  background-color: #f8fafc !important;
+}
+
+/* Form Controls & Inputs */
+html.light input:not([type="checkbox"]):not([type="radio"]),
 html.light select,
 html.light textarea {
   background-color: #ffffff !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+}
+
+html.light input:focus,
+html.light select:focus,
+html.light textarea:focus {
+  border-color: #7c3aed !important;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15) !important;
 }
 
 html.light input::placeholder,
 html.light textarea::placeholder {
   color: #94a3b8 !important;
+}
+
+/* Table styling for enterprise readability */
+html.light table thead tr {
+  background-color: #f8fafc !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+
+html.light table tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Hero / Welcome Banner: Refined high-contrast enterprise presentation */
+html.light .bg-gradient-to-r.from-slate-900 {
+  background-image: linear-gradient(135deg, #ffffff 0%, #faf5ff 45%, #f5f3ff 100%) !important;
+  border-color: #ddd6fe !important;
+  box-shadow: 0 4px 12px -2px rgba(124, 58, 237, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04) !important;
+}
+
+/* Active navigation button in sidebar */
+html.light aside button[data-active="true"],
+html.light aside .bg-indigo-600\/20 {
+  background-color: #ede9fe !important;
+  color: #6d28d9 !important;
+  border-color: #c4b5fd !important;
+  box-shadow: 0 1px 2px rgba(109, 40, 217, 0.08) !important;
+}
+
+html.light aside button[data-active="true"] svg,
+html.light aside .bg-indigo-600\/20 svg {
+  color: #7c3aed !important;
+}
+
+/* Brand Purple Active Elements & Highlights */
+html.light .text-indigo-400 {
+  color: #7c3aed !important;
+}
+
+html.light .text-indigo-300 {
+  color: #6d28d9 !important;
+}
+
+html.light .bg-indigo-500\/10,
+html.light .bg-indigo-600\/10,
+html.light .bg-indigo-500\/20,
+html.light .bg-indigo-600\/20 {
+  background-color: #f5f3ff !important;
+  border-color: #ddd6fe !important;
+}
+
+html.light .bg-indigo-600 {
+  background-color: #7c3aed !important;
+}
+
+html.light .hover\:bg-indigo-500:hover {
+  background-color: #6d28d9 !important;
+}
+
+/* Status Badges */
+html.light .bg-emerald-500\/10 {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+}
+html.light .text-emerald-400 {
+  color: #047857 !important;
+}
+
+html.light .bg-amber-500\/10 {
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+}
+html.light .text-amber-400 {
+  color: #b45309 !important;
+}
+
+html.light .bg-rose-500\/10 {
+  background-color: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+}
+html.light .text-rose-400 {
+  color: #be123c !important;
+}
+
+/* Modals & Dialogs */
+html.light .fixed.inset-0 > .bg-slate-900 {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.18) !important;
+}
+
+/* Custom Scrollbar for sleek Linear/Vercel feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
 }

@@ -252,11 +252,12 @@ function NavItem({
   return (
     <button
       type="button"
+      data-active={active ? "true" : "false"}
       onClick={onClick}
       title={collapsed ? label : undefined}
       className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all group ${
         active
-          ? "bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-sm shadow-indigo-500/10"
+          ? "bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-sm shadow-indigo-500/10 font-bold"
           : "text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent"
       } ${collapsed ? "justify-center px-0" : ""}`}
     >
@@ -269,7 +270,9 @@ function NavItem({
         <span className="flex-1 text-left truncate">{label}</span>
       )}
       {!collapsed && badge && (
-        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-mono bg-slate-800 text-slate-400">
+        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+          active ? "bg-indigo-500/20 text-indigo-300 font-bold" : "bg-slate-800 text-slate-400"
+        }`}>
           {badge}
         </span>
       )}
