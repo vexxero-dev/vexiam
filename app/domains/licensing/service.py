@@ -162,7 +162,7 @@ class CommercialAndLicensingService:
         available_terminals = max(0, total_device_seats - active_terminals)
 
         # Canonical POS feature entitlements
-        pos_features = ["pos.core", "pos.offline", "pos.multi_terminal", "pos.sync", "pos.reporting"]
+        pos_features = ["pos.core", "pos.offline", "pos.multi_terminal", "pos.sync", "pos.reporting", "pos.multi_payment"]
 
         return EntitlementsResponse(
             application_code=app.code,
@@ -753,7 +753,7 @@ class CommercialAndLicensingService:
 
         effective_menu_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
         mode_entitlement = "menu_management.mode:cloud" if effective_menu_mode == "CLOUD" else "menu_management.mode:local"
-        device_entitlements = ["pos.core", "pos.offline", "pos.reporting", mode_entitlement]
+        device_entitlements = ["pos.core", "pos.offline", "pos.reporting", "pos.multi_payment", mode_entitlement]
         
         # pos.sync is enabled only if device has sync_enabled AND location permits sync
         loc_sync_allowed = getattr(loc, "pos_sync_allowed", True) if loc else True
@@ -1376,7 +1376,7 @@ class CommercialAndLicensingService:
             new_expires_at = now + timedelta(days=settings.OFFLINE_GRACE_PERIOD_DAYS)
             effective_menu_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
             mode_entitlement = "menu_management.mode:cloud" if effective_menu_mode == "CLOUD" else "menu_management.mode:local"
-            device_entitlements = ["pos.core", "pos.offline", "pos.reporting", mode_entitlement]
+            device_entitlements = ["pos.core", "pos.offline", "pos.reporting", "pos.multi_payment", mode_entitlement]
             
             loc_sync_allowed = getattr(loc, "pos_sync_allowed", True) if loc else True
             if sync_enabled and loc_sync_allowed:
