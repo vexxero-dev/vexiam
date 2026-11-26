@@ -360,18 +360,36 @@ class CommercialAndLicensingService:
 
     @staticmethod
     async def create_subscription(
-        db: AsyncSession, req: SubscriptionCreateRequest
+        db: AsyncSession, actor_user_id: uuid.UUID, req: SubscriptionCreateRequest
     ) -> Subscription:
-        if req.owner_type == OwnerType.ORGANIZATION and not req.organization_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="organization_id is required for ORGANIZATION subscriptions.",
+        if req.owner_type == OwnerType.ORGANIZATION:
+            if not req.organization_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="organization_id is required for ORGANIZATION subscriptions.",
+                )
+            member_stmt = select(OrganizationMember).where(
+                OrganizationMember.organization_id == req.organization_id,
+                OrganizationMember.user_id == actor_user_id,
+                OrganizationMember.role.in_([OrganizationRole.OWNER, OrganizationRole.ADMIN]),
             )
-        if req.owner_type == OwnerType.INDIVIDUAL and not req.user_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="user_id is required for INDIVIDUAL subscriptions.",
-            )
+            member = (await db.execute(member_stmt)).scalar_one_or_none()
+            if not member:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only organization owners or admins can subscribe an organization.",
+                )
+        if req.owner_type == OwnerType.INDIVIDUAL:
+            if not req.user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="user_id is required for INDIVIDUAL subscriptions.",
+                )
+            if req.user_id != actor_user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cannot create an individual subscription for another user.",
+                )
 
         sub = Subscription(
             plan_id=req.plan_id,

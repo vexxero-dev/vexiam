@@ -194,10 +194,10 @@ async def create_plan(
 )
 async def create_subscription(
     req: SubscriptionCreateRequest,
-    _admin: bool = Depends(require_platform_admin),
+    current_user: User = Depends(require_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await CommercialAndLicensingService.create_subscription(db, req)
+    return await CommercialAndLicensingService.create_subscription(db, current_user.id, req)
 
 
 # Devices & Licensing
