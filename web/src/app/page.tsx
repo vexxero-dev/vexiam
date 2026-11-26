@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import {
   ShieldCheck,
@@ -74,6 +74,8 @@ export default function VexIAMApp() {
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgReg, setNewOrgReg] = useState("");
   const [createOrgModalOpen, setCreateOrgModalOpen] = useState(false);
+  const [creatingOrg, setCreatingOrg] = useState(false);
+  const creatingOrgRef = useRef(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("MEMBER");
   const [generatedInviteToken, setGeneratedInviteToken] = useState<string | null>(null);
@@ -342,10 +344,12 @@ export default function VexIAMApp() {
 
   const handleCreateOrg = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOrgName) return;
+    if (creatingOrgRef.current || !newOrgName.trim()) return;
+    creatingOrgRef.current = true;
+    setCreatingOrg(true);
     try {
       const res = await api.post("/organizations", {
-        name: newOrgName,
+        name: newOrgName.trim(),
         registration_number: newOrgReg || undefined,
       });
       setNewOrgName("");
@@ -357,6 +361,9 @@ export default function VexIAMApp() {
       setActiveSection("org_members");
     } catch (err: any) {
       alert(err.response?.data?.detail || "Failed to create organization");
+    } finally {
+      creatingOrgRef.current = false;
+      setCreatingOrg(false);
     }
   };
 
@@ -736,10 +743,10 @@ export default function VexIAMApp() {
                 </button>
                 <button
                   type="submit"
-                  disabled={!newOrgName.trim()}
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white text-xs font-semibold py-2.5 rounded-xl transition shadow-sm shadow-indigo-600/30"
+                  disabled={!newOrgName.trim() || creatingOrg}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-xs font-semibold py-2.5 rounded-xl transition shadow-sm shadow-indigo-600/30"
                 >
-                  Establish Entity
+                  {creatingOrg ? "Establishing..." : "Establish Entity"}
                 </button>
               </div>
             </form>
