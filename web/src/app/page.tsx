@@ -574,6 +574,18 @@ export default function VexIAMApp() {
               onOpenCreateOrg={() => setCreateOrgModalOpen(true)}
               onNavigateToSection={(sec) => setActiveSection(sec)}
               members={orgMembers}
+              onDeleteOrg={async (org) => {
+                try {
+                  await api.delete(`/organizations/${org.id}`);
+                  const remaining = organizations.filter((o) => o.id !== org.id);
+                  setOrganizations(remaining);
+                  if (selectedOrg?.id === org.id) {
+                    setSelectedOrg(remaining[0] ?? null);
+                  }
+                } catch (e: any) {
+                  alert(e.response?.data?.detail || "Could not delete business entity");
+                }
+              }}
             />
           )}
 

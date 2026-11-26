@@ -124,3 +124,16 @@ async def transfer_ownership(
     db: AsyncSession = Depends(get_db),
 ):
     return await OrganizationService.transfer_ownership(db, org_id, current_user.id, req)
+
+
+@router.delete(
+    "/{org_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a business entity (only allowed if no active subscriptions are linked)",
+)
+async def delete_organization(
+    org_id: uuid.UUID,
+    current_user: User = Depends(require_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await OrganizationService.delete_organization(db, org_id, current_user.id)

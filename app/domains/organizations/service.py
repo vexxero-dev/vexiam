@@ -330,6 +330,59 @@ class OrganizationService:
         return res_mem.scalar_one()
 
     @staticmethod
+    async def delete_organization(
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> None:
+        from app.domains.subscriptions.models import Subscription, OwnerType, SubscriptionStatus
+
+        stmt_org = select(Organization).where(
+            and_(
+                Organization.id == org_id,
+                Organization.status != OrganizationStatus.DELETED,
+            )
+        )
+        res_org = await db.execute(stmt_org)
+        org = res_org.scalar_one_or_none()
+        if not org:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found.",
+            )
+
+        stmt_member = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == org_id,
+                OrganizationMember.user_id == user_id,
+            )
+        )
+        res_member = await db.execute(stmt_member)
+        member = res_member.scalar_one_or_none()
+        if not member or member.role != OrganizationRole.OWNER:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the organization OWNER can delete a business entity.",
+            )
+
+        stmt_sub = select(Subscription.id).where(
+            and_(
+                Subscription.owner_type == OwnerType.ORGANIZATION,
+                Subscription.organization_id == org_id,
+                Subscription.status.in_([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL]),
+            )
+        ).limit(1)
+        res_sub = await db.execute(stmt_sub)
+        if res_sub.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete business entity with active subscriptions linked.",
+            )
+
+        org.status = OrganizationStatus.DELETED
+        await db.commit()
+
+    @staticmethod
     async def get_members(
         db: AsyncSession,
         org_id: uuid.UUID,
@@ -434,3 +487,56 @@ class OrganizationService:
         )
         res_mem = await db.execute(stmt_mem)
         return res_mem.scalar_one()
+
+    @staticmethod
+    async def delete_organization(
+        db: AsyncSession,
+        org_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> None:
+        from app.domains.subscriptions.models import Subscription, OwnerType, SubscriptionStatus
+
+        stmt_org = select(Organization).where(
+            and_(
+                Organization.id == org_id,
+                Organization.status != OrganizationStatus.DELETED,
+            )
+        )
+        res_org = await db.execute(stmt_org)
+        org = res_org.scalar_one_or_none()
+        if not org:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found.",
+            )
+
+        stmt_member = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == org_id,
+                OrganizationMember.user_id == user_id,
+            )
+        )
+        res_member = await db.execute(stmt_member)
+        member = res_member.scalar_one_or_none()
+        if not member or member.role != OrganizationRole.OWNER:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the organization OWNER can delete a business entity.",
+            )
+
+        stmt_sub = select(Subscription.id).where(
+            and_(
+                Subscription.owner_type == OwnerType.ORGANIZATION,
+                Subscription.organization_id == org_id,
+                Subscription.status.in_([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL]),
+            )
+        ).limit(1)
+        res_sub = await db.execute(stmt_sub)
+        if res_sub.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete business entity with active subscriptions linked.",
+            )
+
+        org.status = OrganizationStatus.DELETED
+        await db.commit()

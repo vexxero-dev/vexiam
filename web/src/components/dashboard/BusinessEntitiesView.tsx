@@ -9,7 +9,8 @@ import {
   Copy,
   ChevronRight,
   ShieldCheck,
-  Users
+  Users,
+  Trash2
 } from "lucide-react";
 import { Organization, Member } from "@/types";
 
@@ -22,6 +23,7 @@ interface BusinessEntitiesViewProps {
   onOpenCreateOrg: () => void;
   onNavigateToSection: (section: any) => void;
   members: Member[];
+  onDeleteOrg?: (org: Organization) => Promise<void>;
 }
 
 export function BusinessEntitiesView({
@@ -33,8 +35,10 @@ export function BusinessEntitiesView({
   onOpenCreateOrg,
   onNavigateToSection,
   members,
+  onDeleteOrg,
 }: BusinessEntitiesViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [deletingOrgId, setDeletingOrgId] = useState<string | null>(null);
 
   const filteredOrgs = organizations.filter((org) => {
     if (!searchQuery.trim()) return true;
@@ -180,18 +184,42 @@ export function BusinessEntitiesView({
                       </td>
 
                       <td className="py-3.5 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectOrg(org);
-                            onNavigateToSection("overview");
-                          }}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300"
-                        >
-                          <span>Open Workspace</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="inline-flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectOrg(org);
+                              onNavigateToSection("overview");
+                            }}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-400 hover:text-indigo-300"
+                          >
+                            <span>Open Workspace</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                          {onDeleteOrg && (!("role" in org) || (org as { role?: string }).role === "OWNER") && (
+                            <button
+                              type="button"
+                              disabled={deletingOrgId === org.id}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!window.confirm(`Delete business entity "${org.name}"? This is only allowed if no active subscriptions are linked.`)) {
+                                  return;
+                                }
+                                setDeletingOrgId(org.id);
+                                try {
+                                  await onDeleteOrg(org);
+                                } finally {
+                                  setDeletingOrgId(null);
+                                }
+                              }}
+                              title="Delete Business Entity"
+                              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

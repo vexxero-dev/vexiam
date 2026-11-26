@@ -161,3 +161,70 @@ async def test_organization_lifecycle(client: AsyncClient):
     unmatched_orgs = await client.get("/api/v1/organizations?permission=nonexistent.permission", headers=owner_headers)
     assert unmatched_orgs.status_code == 200
     assert not any(o["id"] == org_id for o in unmatched_orgs.json())
+
+
+@pytest.mark.asyncio
+async def test_delete_organization_subscription_guard(client: AsyncClient, db_session):
+    import uuid
+    from app.domains.applications.models import Application
+    from app.domains.subscriptions.models import Plan, Subscription, OwnerType, SubscriptionStatus
+
+    # 1. Register & Verify Owner
+    email = "delowner@example.com"
+    await client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "Password123!", "first_name": "Del", "last_name": "Owner"},
+    )
+    login_res = await client.post("/api/v1/auth/login", json={"email": email, "password": "Password123!"})
+    user_id = login_res.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {login_res.json()['access_token']}"}
+    verify_token = create_email_verification_token(user_id, email)
+    await client.post("/api/v1/auth/verify-email", json={"token": verify_token})
+
+    # 2. Create two organizations
+    org1_res = await client.post("/api/v1/organizations", json={"name": "Deletable Org"}, headers=headers)
+    assert org1_res.status_code == 201
+    org1_id = org1_res.json()["id"]
+
+    org2_res = await client.post("/api/v1/organizations", json={"name": "Subscribed Org"}, headers=headers)
+    assert org2_res.status_code == 201
+    org2_id = org2_res.json()["id"]
+
+    # 3. Create an Application, Plan, and an ACTIVE Subscription for org2, and a CANCELED one for org1
+    app = Application(code=f"app-{uuid.uuid4().hex[:6]}", name="Test App")
+    db_session.add(app)
+    await db_session.flush()
+
+    plan = Plan(application_id=app.id, code=f"plan-{uuid.uuid4().hex[:6]}", name="Pro Plan")
+    db_session.add(plan)
+    await db_session.flush()
+
+    sub_canceled = Subscription(
+        plan_id=plan.id,
+        owner_type=OwnerType.ORGANIZATION,
+        organization_id=uuid.UUID(org1_id),
+        status=SubscriptionStatus.CANCELED,
+    )
+    sub_active = Subscription(
+        plan_id=plan.id,
+        owner_type=OwnerType.ORGANIZATION,
+        organization_id=uuid.UUID(org2_id),
+        status=SubscriptionStatus.ACTIVE,
+    )
+    db_session.add_all([sub_canceled, sub_active])
+    await db_session.commit()
+
+    # 4. Deleting org2 (with ACTIVE subscription) must fail with 409 Conflict
+    del_org2 = await client.delete(f"/api/v1/organizations/{org2_id}", headers=headers)
+    assert del_org2.status_code == 409
+
+    # 5. Deleting org1 (only CANCELED subscription) must succeed with 204 No Content
+    del_org1 = await client.delete(f"/api/v1/organizations/{org1_id}", headers=headers)
+    assert del_org1.status_code == 204
+
+    # 6. Verify org1 no longer appears in GET /organizations, while org2 still does
+    orgs_res = await client.get("/api/v1/organizations", headers=headers)
+    assert orgs_res.status_code == 200
+    org_ids = [o["id"] for o in orgs_res.json()]
+    assert org1_id not in org_ids
+    assert org2_id in org_ids
