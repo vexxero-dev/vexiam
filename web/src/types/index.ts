@@ -82,10 +82,83 @@ export interface ApplicationAssignment {
   };
 }
 
+export type LocationStatus = "ACTIVE" | "ARCHIVED";
+export type LocationApplicationStatus = "ACTIVE" | "DEACTIVATED";
+export type LocationPosModePolicy = "ANY_ALLOWED" | "LOCAL_ONLY" | "CLOUD_ONLY";
+
+export interface LocationApplication {
+  id: string;
+  organization_id: string;
+  location_id: string;
+  application_id: string;
+  application_code?: string | null;
+  application_name?: string | null;
+  status: LocationApplicationStatus;
+  activated_at: string;
+  deactivated_at?: string | null;
+}
+
+export interface Location {
+  id: string;
+  organization_id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  state_province?: string | null;
+  postal_code?: string | null;
+  country_code?: string | null;
+  timezone: string;
+  status: LocationStatus;
+  pos_mode_policy: LocationPosModePolicy;
+  pos_default_mode: "LOCAL" | "CLOUD" | string;
+  pos_sync_allowed: boolean;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+  applications: LocationApplication[];
+}
+
+export interface LocationCreatePayload {
+  code: string;
+  name: string;
+  description?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state_province?: string;
+  postal_code?: string;
+  country_code?: string;
+  timezone?: string;
+}
+
+export interface LocationUpdatePayload {
+  name?: string;
+  description?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state_province?: string;
+  postal_code?: string;
+  country_code?: string;
+  timezone?: string;
+  status?: LocationStatus;
+}
+
+export interface LocationPosPolicyPayload {
+  pos_mode_policy?: LocationPosModePolicy;
+  pos_default_mode?: "LOCAL" | "CLOUD";
+  pos_sync_allowed?: boolean;
+}
+
 export type MainNavSection = 
   | "overview" 
   | "identity" 
   | "business_entities" 
+  | "locations"
   | "org_members" 
   | "app_catalog" 
   | "subscriptions"

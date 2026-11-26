@@ -1,4 +1,12 @@
 import axios from "axios";
+import type {
+  Location,
+  LocationApplication,
+  LocationCreatePayload,
+  LocationPosPolicyPayload,
+  LocationStatus,
+  LocationUpdatePayload,
+} from "@/types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "https://api.vexxero.com/api/v1";
@@ -36,3 +44,49 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+export const locationsApi = {
+  list: async (orgId: string, status?: LocationStatus): Promise<Location[]> => {
+    const res = await api.get<Location[]>(`/organizations/${orgId}/locations`, {
+      params: status ? { status } : undefined,
+    });
+    return res.data;
+  },
+  create: async (orgId: string, payload: LocationCreatePayload): Promise<Location> => {
+    const res = await api.post<Location>(`/organizations/${orgId}/locations`, payload);
+    return res.data;
+  },
+  update: async (locationId: string, payload: LocationUpdatePayload): Promise<Location> => {
+    const res = await api.put<Location>(`/locations/${locationId}`, payload);
+    return res.data;
+  },
+  archive: async (locationId: string): Promise<Location> => {
+    const res = await api.post<Location>(`/locations/${locationId}/archive`);
+    return res.data;
+  },
+  enableApplication: async (
+    locationId: string,
+    applicationId: string
+  ): Promise<LocationApplication> => {
+    const res = await api.post<LocationApplication>(`/locations/${locationId}/applications`, {
+      application_id: applicationId,
+    });
+    return res.data;
+  },
+  deactivateApplication: async (
+    locationId: string,
+    applicationId: string
+  ): Promise<LocationApplication> => {
+    const res = await api.delete<LocationApplication>(
+      `/locations/${locationId}/applications/${applicationId}`
+    );
+    return res.data;
+  },
+  updatePosPolicy: async (
+    locationId: string,
+    payload: LocationPosPolicyPayload
+  ): Promise<Location> => {
+    const res = await api.put<Location>(`/locations/${locationId}/pos-policy`, payload);
+    return res.data;
+  },
+};

@@ -45,6 +45,7 @@ import { SetupChecklist } from "@/components/dashboard/SetupChecklist";
 import { ExecutiveOverviewView } from "@/components/dashboard/ExecutiveOverviewView";
 import { TeamManagementView } from "@/components/dashboard/TeamManagementView";
 import { BusinessEntitiesView } from "@/components/dashboard/BusinessEntitiesView";
+import { LocationManagementView } from "@/components/dashboard/LocationManagementView";
 import { ApplicationCatalogView } from "@/components/dashboard/ApplicationCatalogView";
 import { IndividualIdentityView } from "@/components/dashboard/IndividualIdentityView";
 import { SubscriptionManagementView } from "@/components/dashboard/SubscriptionManagementView";
@@ -560,6 +561,13 @@ export default function VexIAMApp() {
                   alert(e.response?.data?.detail || "Could not resend email");
                 }
               }}
+            />
+          )}
+
+          {activeSection === "locations" && (
+            <LocationManagementView
+              selectedOrg={selectedOrg}
+              applications={applications}
             />
           )}
 

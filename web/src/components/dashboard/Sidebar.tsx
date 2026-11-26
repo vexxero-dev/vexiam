@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   ShieldCheck,
   Building2,
+  MapPin,
   Users,
   Layers,
   CreditCard,
@@ -151,6 +152,13 @@ export function Sidebar({
               icon={Building2}
               label="Business Entities"
               badge={organizations.length > 0 ? String(organizations.length) : undefined}
+            />
+            <NavItem
+              collapsed={collapsed}
+              active={activeSection === "locations"}
+              onClick={() => onSelectSection("locations")}
+              icon={MapPin}
+              label="Locations"
             />
             <NavItem
               collapsed={collapsed}

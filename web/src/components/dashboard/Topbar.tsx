@@ -25,6 +25,7 @@ const sectionTitles: Record<MainNavSection, { title: string; category: string }>
   overview: { title: "Executive Overview", category: "IAM Workspace" },
   identity: { title: "Individual Identity", category: "Core Identity" },
   business_entities: { title: "Business Entities Directory", category: "Core Identity" },
+  locations: { title: "Location Management", category: "Core Identity" },
   org_members: { title: "Organization Members", category: "Core Identity" },
   app_catalog: { title: "Application Catalog", category: "Ecosystem & Billing" },
   subscriptions: { title: "Subscriptions & Entitlements", category: "Ecosystem & Billing" },
