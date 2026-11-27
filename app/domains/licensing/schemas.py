@@ -245,11 +245,16 @@ class DeviceInternalVerificationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     device_id: uuid.UUID
+    terminal_id: Optional[str] = None
     organization_id: uuid.UUID
     location_id: Optional[uuid.UUID] = None
     fingerprint: str
     name: str
     public_key: str
+    credential_id: Optional[uuid.UUID] = None
+    credential_version: Optional[int] = None
+    key_fingerprint: Optional[str] = None
+    credential_status: Optional[str] = None
     status: DeviceStatus
     is_valid: bool
     sync_entitled: bool = True
@@ -346,3 +351,40 @@ class OfflineLicensePayload(BaseModel):
     offline_grace_until: Optional[int] = None
     grace_period_days: int
     entitlements: list[str] = Field(default_factory=list)
+
+
+class BoundChallengeRequest(BaseModel):
+    operation: str = Field(..., pattern="^(ROTATE|RECOVER)$")
+    new_public_key: str = Field(..., min_length=10)
+
+
+class BoundChallengeResponse(BaseModel):
+    challenge_id: str
+    nonce: str
+    device_id: uuid.UUID
+    organization_id: uuid.UUID
+    operation: str
+    expires_at: datetime
+
+
+class CredentialReplaceRequest(BaseModel):
+    new_public_key: str = Field(..., min_length=10)
+    challenge_id: str = Field(..., min_length=8)
+    signature_b64: str = Field(..., min_length=10)
+    reason: Optional[str] = Field(None, max_length=256)
+
+
+class RevokeActionRequest(BaseModel):
+    reason: Optional[str] = Field(None, max_length=256)
+
+
+class CredentialLifecycleResponse(BaseModel):
+    device_id: uuid.UUID
+    terminal_id: str
+    credential_id: Optional[uuid.UUID] = None
+    credential_version: Optional[int] = None
+    key_fingerprint: Optional[str] = None
+    credential_status: Optional[str] = None
+    device_status: str
+    installation_replacement_authorized: bool = False
+    audit_id: uuid.UUID

@@ -30,6 +30,11 @@ from app.domains.licensing.schemas import (
     MachineHeartbeatRequest,
     DeviceHeartbeatResponse,
     DeviceInternalVerificationResponse,
+    BoundChallengeRequest,
+    BoundChallengeResponse,
+    CredentialReplaceRequest,
+    RevokeActionRequest,
+    CredentialLifecycleResponse,
     LicenseIssueRequest,
     LicenseResponse,
     EntitlementsResponse,
@@ -400,13 +405,28 @@ async def internal_verify_device(
 
     effective_mode = CommercialAndLicensingService.resolve_effective_terminal_mode(device, loc)
 
+    from app.domains.licensing.models import DeviceCredential, CredentialStatus
+    active_cred = (
+        await db.execute(
+            select(DeviceCredential).where(
+                DeviceCredential.device_id == device.id,
+                DeviceCredential.status == CredentialStatus.ACTIVE,
+            )
+        )
+    ).scalar_one_or_none()
+
     return DeviceInternalVerificationResponse(
         device_id=device.id,
+        terminal_id=device.terminal_id or device.fingerprint,
         organization_id=device.organization_id,
         location_id=device.location_id,
         fingerprint=device.fingerprint,
         name=device.name,
-        public_key=device.public_key,
+        public_key=active_cred.public_key if active_cred else device.public_key,
+        credential_id=active_cred.id if active_cred else None,
+        credential_version=active_cred.credential_version if active_cred else 1,
+        key_fingerprint=active_cred.key_fingerprint if active_cred else None,
+        credential_status=active_cred.status.value if active_cred else "ACTIVE",
         status=device.status,
         is_valid=(device.status == DeviceStatus.ACTIVE),
         sync_entitled=is_sync_entitled,
@@ -471,3 +491,107 @@ async def set_device_menu_mode(
         db, device_id, mode
     )
 
+
+
+@router.post(
+    "/devices/{device_id}/challenge",
+    response_model=BoundChallengeResponse,
+    summary="Issue a bound one-time challenge for credential rotation or terminal recovery",
+)
+async def create_bound_device_challenge(
+    device_id: uuid.UUID,
+    req: BoundChallengeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.create_bound_device_challenge(
+        db=db,
+        actor_user_id=current_user.id,
+        device_id=device_id,
+        operation=req.operation,
+        new_public_key=req.new_public_key,
+    )
+
+
+@router.post(
+    "/devices/{device_id}/credentials/rotate",
+    response_model=CredentialLifecycleResponse,
+    summary="Rotate a terminal's active cryptographic credential without replacing installation",
+)
+async def rotate_terminal_credential(
+    device_id: uuid.UUID,
+    req: CredentialReplaceRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.rotate_terminal_credential(
+        db=db,
+        actor_user_id=current_user.id,
+        device_id=device_id,
+        new_public_key=req.new_public_key,
+        challenge_id=req.challenge_id,
+        signature_b64=req.signature_b64,
+        reason=req.reason,
+    )
+
+
+@router.post(
+    "/devices/{device_id}/recover",
+    response_model=CredentialLifecycleResponse,
+    summary="Recover a logical terminal identity with a new credential and authorize installation replacement",
+)
+async def recover_terminal_identity(
+    device_id: uuid.UUID,
+    req: CredentialReplaceRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.recover_terminal_identity(
+        db=db,
+        actor_user_id=current_user.id,
+        device_id=device_id,
+        new_public_key=req.new_public_key,
+        challenge_id=req.challenge_id,
+        signature_b64=req.signature_b64,
+        reason=req.reason,
+    )
+
+
+@router.post(
+    "/devices/{device_id}/credentials/{credential_id}/revoke",
+    response_model=CredentialLifecycleResponse,
+    summary="Revoke a specific terminal credential without revoking the logical terminal",
+)
+async def revoke_terminal_credential(
+    device_id: uuid.UUID,
+    credential_id: uuid.UUID,
+    req: RevokeActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.revoke_terminal_credential(
+        db=db,
+        actor_user_id=current_user.id,
+        device_id=device_id,
+        credential_id=credential_id,
+        reason=req.reason,
+    )
+
+
+@router.post(
+    "/devices/{device_id}/revoke-terminal",
+    response_model=CredentialLifecycleResponse,
+    summary="Revoke a logical terminal and its active credential",
+)
+async def revoke_terminal(
+    device_id: uuid.UUID,
+    req: RevokeActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await CommercialAndLicensingService.revoke_terminal(
+        db=db,
+        actor_user_id=current_user.id,
+        device_id=device_id,
+        reason=req.reason,
+    )

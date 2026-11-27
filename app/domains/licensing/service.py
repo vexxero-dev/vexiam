@@ -503,6 +503,25 @@ class CommercialAndLicensingService:
                     detail="Cannot assign device to an inactive or archived location.",
                 )
 
+        # Decode and validate Ed25519 public key and derived fingerprint on the server
+        try:
+            raw_pub = base64.b64decode(req.public_key.strip(), validate=True)
+            ed25519.Ed25519PublicKey.from_public_bytes(raw_pub)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid Ed25519 public key: {exc}",
+            )
+
+        if req.fingerprint.startswith("VEX-DEV-"):
+            import hashlib
+            expected_fp = f"VEX-DEV-{hashlib.sha256(raw_pub).hexdigest()}"
+            if req.fingerprint != expected_fp:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Hardware fingerprint does not match the submitted public key.",
+                )
+
         # Check fingerprint uniqueness within org
         stmt_dev = select(Device).where(
             and_(
@@ -513,11 +532,20 @@ class CommercialAndLicensingService:
         res_dev = await db.execute(stmt_dev)
         existing_device = res_dev.scalar_one_or_none()
         if existing_device:
-            # Idempotent re-registration / terminal key update & authenticated sequence counter recovery
+            try:
+                existing_raw_pub = base64.b64decode(existing_device.public_key)
+                ed25519.Ed25519PublicKey.from_public_bytes(existing_raw_pub)
+            except Exception:
+                existing_raw_pub = None
+
+            if existing_raw_pub != raw_pub:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Device identity conflict: terminal fingerprint is already registered with a different public key.",
+                )
+            # Idempotent re-registration with identical public key
             existing_device.name = req.name
-            existing_device.public_key = req.public_key
             existing_device.status = DeviceStatus.ACTIVE
-            existing_device.last_sequence = 0
             existing_device.last_heartbeat_at = datetime.now(timezone.utc)
             if req.location_id is not None:
                 existing_device.location_id = req.location_id
@@ -529,15 +557,45 @@ class CommercialAndLicensingService:
             organization_id=req.organization_id,
             location_id=req.location_id,
             name=req.name,
+            terminal_id=req.fingerprint,
             fingerprint=req.fingerprint,
             public_key=req.public_key,
             status=DeviceStatus.ACTIVE,
             last_heartbeat_at=datetime.now(timezone.utc),
         )
         db.add(device)
+        await db.flush()
+
+        import hashlib
+        from app.domains.licensing.models import DeviceCredential, CredentialStatus
+        cred = DeviceCredential(
+            device_id=device.id,
+            public_key=req.public_key,
+            key_fingerprint=hashlib.sha256(raw_pub).hexdigest(),
+            credential_version=1,
+            status=CredentialStatus.ACTIVE,
+        )
+        db.add(cred)
         await db.commit()
         await db.refresh(device)
         return device
+
+    @staticmethod
+    async def allocate_next_credential_version(db: AsyncSession, device_id: uuid.UUID) -> int:
+        """Safely allocate the next monotonic credential_version for a logical terminal."""
+        from sqlalchemy import func
+        from app.domains.licensing.models import DeviceCredential
+
+        # Lock the parent Device row to serialize concurrent version allocations
+        await db.execute(select(Device.id).where(Device.id == device_id).with_for_update())
+        max_ver = (
+            await db.execute(
+                select(func.coalesce(func.max(DeviceCredential.credential_version), 0)).where(
+                    DeviceCredential.device_id == device_id
+                )
+            )
+        ).scalar_one()
+        return int(max_ver) + 1
 
     @staticmethod
     async def issue_device_license(
@@ -1935,3 +1993,359 @@ class CommercialAndLicensingService:
         """
         return (device.menu_mode or "LOCAL").upper()
 
+
+
+    @staticmethod
+    async def _require_org_admin(db: AsyncSession, organization_id: uuid.UUID, actor_user_id: uuid.UUID) -> None:
+        stmt_actor = select(OrganizationMember).where(
+            and_(
+                OrganizationMember.organization_id == organization_id,
+                OrganizationMember.user_id == actor_user_id,
+            )
+        )
+        actor = (await db.execute(stmt_actor)).scalar_one_or_none()
+        if not actor or actor.role not in [OrganizationRole.OWNER, OrganizationRole.ADMIN]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only organization owners and administrators can perform terminal credential lifecycle operations.",
+            )
+
+    @staticmethod
+    def _validate_ed25519_key(public_key_b64: str) -> tuple[bytes, str]:
+        import hashlib
+        try:
+            raw_pub = base64.b64decode(public_key_b64.strip(), validate=True)
+            if len(raw_pub) != 32:
+                raise ValueError(f"Expected 32-byte Ed25519 key, got {len(raw_pub)} bytes")
+            ed25519.Ed25519PublicKey.from_public_bytes(raw_pub)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid Ed25519 public key: {exc}",
+            )
+        return raw_pub, hashlib.sha256(raw_pub).hexdigest()
+
+    @classmethod
+    async def create_bound_device_challenge(
+        cls,
+        db: AsyncSession,
+        actor_user_id: uuid.UUID,
+        device_id: uuid.UUID,
+        operation: str,
+        new_public_key: str,
+    ) -> DeviceChallenge:
+        device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+        if not device:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+        await cls._require_org_admin(db, device.organization_id, actor_user_id)
+        _, key_fp = cls._validate_ed25519_key(new_public_key)
+
+        import secrets
+        now_utc = datetime.now(timezone.utc)
+        chal = DeviceChallenge(
+            challenge_id=f"chal_{secrets.token_urlsafe(16)}",
+            nonce=secrets.token_hex(16),
+            organization_id=device.organization_id,
+            device_id=device.id,
+            actor_user_id=actor_user_id,
+            operation=operation,
+            expected_public_key_hash=key_fp,
+            expires_at=now_utc + timedelta(minutes=5),
+        )
+        db.add(chal)
+        await db.commit()
+        await db.refresh(chal)
+        return chal
+
+    @classmethod
+    async def _replace_terminal_credential(
+        cls,
+        db: AsyncSession,
+        actor_user_id: uuid.UUID,
+        device_id: uuid.UUID,
+        new_public_key: str,
+        challenge_id: str,
+        signature_b64: str,
+        operation: str,
+        reason: str | None,
+        authorize_installation_replacement: bool,
+    ) -> dict:
+        from app.domains.licensing.models import DeviceCredential, CredentialStatus, TerminalSecurityAudit
+
+        device = (
+            await db.execute(select(Device).where(Device.id == device_id).with_for_update())
+        ).scalar_one_or_none()
+        if not device:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+
+        await cls._require_org_admin(db, device.organization_id, actor_user_id)
+        raw_pub, key_fp = cls._validate_ed25519_key(new_public_key)
+
+        chal = (
+            await db.execute(
+                select(DeviceChallenge).where(DeviceChallenge.challenge_id == challenge_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if not chal:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid challenge ID.")
+        if chal.consumed_at is not None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge already consumed.")
+        now_utc = datetime.now(timezone.utc)
+        chal_exp = chal.expires_at if chal.expires_at.tzinfo else chal.expires_at.replace(tzinfo=timezone.utc)
+        if now_utc > chal_exp:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge expired.")
+        if (
+            chal.device_id != device.id
+            or chal.organization_id != device.organization_id
+            or chal.actor_user_id != actor_user_id
+            or chal.operation != operation
+            or chal.expected_public_key_hash != key_fp
+        ):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Challenge binding mismatch.")
+
+        try:
+            term_pub = ed25519.Ed25519PublicKey.from_public_bytes(raw_pub)
+            challenge_data = {
+                "challenge_id": chal.challenge_id,
+                "device_id": str(device.id),
+                "nonce": chal.nonce,
+                "operation": operation,
+                "organization_id": str(device.organization_id),
+            }
+            term_pub.verify(base64.b64decode(signature_b64), rfc8785.dumps(challenge_data))
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Proof of possession failed: {exc}")
+
+        chal.consumed_at = now_utc
+
+        active_cred = (
+            await db.execute(
+                select(DeviceCredential)
+                .where(
+                    DeviceCredential.device_id == device.id,
+                    DeviceCredential.status == CredentialStatus.ACTIVE,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+        prev_cred_id = active_cred.id if active_cred else None
+        if active_cred:
+            active_cred.status = CredentialStatus.REVOKED
+            active_cred.revoked_at = now_utc
+            await db.flush()
+
+        next_ver = await cls.allocate_next_credential_version(db, device.id)
+        new_cred = DeviceCredential(
+            device_id=device.id,
+            public_key=new_public_key.strip(),
+            key_fingerprint=key_fp,
+            credential_version=next_ver,
+            status=CredentialStatus.ACTIVE,
+            created_at=now_utc,
+        )
+        db.add(new_cred)
+        await db.flush()
+
+        # Keep legacy Device.public_key synchronized; never reactivate a suspended/revoked device
+        device.public_key = new_public_key.strip()
+
+        audit = TerminalSecurityAudit(
+            organization_id=device.organization_id,
+            device_id=device.id,
+            terminal_id=device.terminal_id or device.fingerprint,
+            action=f"CREDENTIAL_{operation}",
+            operation=operation,
+            actor_user_id=actor_user_id,
+            previous_credential_id=prev_cred_id,
+            new_credential_id=new_cred.id,
+            previous_status=device.status.value,
+            new_status=device.status.value,
+            reason=reason,
+            installation_replacement_authorized=authorize_installation_replacement,
+            created_at=now_utc,
+        )
+        db.add(audit)
+        await db.commit()
+
+        return {
+            "device_id": device.id,
+            "terminal_id": device.terminal_id or device.fingerprint,
+            "credential_id": new_cred.id,
+            "credential_version": new_cred.credential_version,
+            "key_fingerprint": new_cred.key_fingerprint,
+            "credential_status": new_cred.status.value,
+            "device_status": device.status.value,
+            "installation_replacement_authorized": authorize_installation_replacement,
+            "audit_id": audit.id,
+        }
+
+    @classmethod
+    async def rotate_terminal_credential(
+        cls,
+        db: AsyncSession,
+        actor_user_id: uuid.UUID,
+        device_id: uuid.UUID,
+        new_public_key: str,
+        challenge_id: str,
+        signature_b64: str,
+        reason: str | None = None,
+    ) -> dict:
+        return await cls._replace_terminal_credential(
+            db=db,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            new_public_key=new_public_key,
+            challenge_id=challenge_id,
+            signature_b64=signature_b64,
+            operation="ROTATE",
+            reason=reason,
+            authorize_installation_replacement=False,
+        )
+
+    @classmethod
+    async def recover_terminal_identity(
+        cls,
+        db: AsyncSession,
+        actor_user_id: uuid.UUID,
+        device_id: uuid.UUID,
+        new_public_key: str,
+        challenge_id: str,
+        signature_b64: str,
+        reason: str | None = None,
+    ) -> dict:
+        return await cls._replace_terminal_credential(
+            db=db,
+            actor_user_id=actor_user_id,
+            device_id=device_id,
+            new_public_key=new_public_key,
+            challenge_id=challenge_id,
+            signature_b64=signature_b64,
+            operation="RECOVER",
+            reason=reason,
+            authorize_installation_replacement=True,
+        )
+
+    @classmethod
+    async def revoke_terminal_credential(
+        cls,
+        db: AsyncSession,
+        actor_user_id: uuid.UUID,
+        device_id: uuid.UUID,
+        credential_id: uuid.UUID,
+        reason: str | None = None,
+    ) -> dict:
+        from app.domains.licensing.models import DeviceCredential, CredentialStatus, TerminalSecurityAudit
+
+        device = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+        if not device:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+        await cls._require_org_admin(db, device.organization_id, actor_user_id)
+
+        cred = (
+            await db.execute(
+                select(DeviceCredential).where(
+                    DeviceCredential.id == credential_id,
+                    DeviceCredential.device_id == device.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not cred:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found.")
+
+        now_utc = datetime.now(timezone.utc)
+        cred.status = CredentialStatus.REVOKED
+        cred.revoked_at = cred.revoked_at or now_utc
+
+        audit = TerminalSecurityAudit(
+            organization_id=device.organization_id,
+            device_id=device.id,
+            terminal_id=device.terminal_id or device.fingerprint,
+            action="CREDENTIAL_REVOKE",
+            operation="REVOKE_CREDENTIAL",
+            actor_user_id=actor_user_id,
+            previous_credential_id=cred.id,
+            new_credential_id=None,
+            previous_status=device.status.value,
+            new_status=device.status.value,
+            reason=reason,
+            installation_replacement_authorized=False,
+            created_at=now_utc,
+        )
+        db.add(audit)
+        await db.commit()
+
+        return {
+            "device_id": device.id,
+            "terminal_id": device.terminal_id or device.fingerprint,
+            "credential_id": cred.id,
+            "credential_version": cred.credential_version,
+            "key_fingerprint": cred.key_fingerprint,
+            "credential_status": cred.status.value,
+            "device_status": device.status.value,
+            "installation_replacement_authorized": False,
+            "audit_id": audit.id,
+        }
+
+    @classmethod
+    async def revoke_terminal(
+        cls,
+        db: AsyncSession,
+        actor_user_id: uuid.UUID,
+        device_id: uuid.UUID,
+        reason: str | None = None,
+    ) -> dict:
+        from app.domains.licensing.models import DeviceCredential, CredentialStatus, TerminalSecurityAudit
+
+        device = (
+            await db.execute(select(Device).where(Device.id == device_id).with_for_update())
+        ).scalar_one_or_none()
+        if not device:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+        await cls._require_org_admin(db, device.organization_id, actor_user_id)
+
+        now_utc = datetime.now(timezone.utc)
+        prev_status = device.status.value
+        device.status = DeviceStatus.REVOKED
+
+        active_cred = (
+            await db.execute(
+                select(DeviceCredential).where(
+                    DeviceCredential.device_id == device.id,
+                    DeviceCredential.status == CredentialStatus.ACTIVE,
+                )
+            )
+        ).scalar_one_or_none()
+        if active_cred:
+            active_cred.status = CredentialStatus.REVOKED
+            active_cred.revoked_at = now_utc
+
+        audit = TerminalSecurityAudit(
+            organization_id=device.organization_id,
+            device_id=device.id,
+            terminal_id=device.terminal_id or device.fingerprint,
+            action="TERMINAL_REVOKE",
+            operation="REVOKE_TERMINAL",
+            actor_user_id=actor_user_id,
+            previous_credential_id=active_cred.id if active_cred else None,
+            new_credential_id=None,
+            previous_status=prev_status,
+            new_status=device.status.value,
+            reason=reason,
+            installation_replacement_authorized=False,
+            created_at=now_utc,
+        )
+        db.add(audit)
+        await db.commit()
+
+        return {
+            "device_id": device.id,
+            "terminal_id": device.terminal_id or device.fingerprint,
+            "credential_id": active_cred.id if active_cred else None,
+            "credential_version": active_cred.credential_version if active_cred else None,
+            "key_fingerprint": active_cred.key_fingerprint if active_cred else None,
+            "credential_status": active_cred.status.value if active_cred else None,
+            "device_status": device.status.value,
+            "installation_replacement_authorized": False,
+            "audit_id": audit.id,
+        }

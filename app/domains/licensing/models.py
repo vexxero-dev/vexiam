@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 import enum
-from sqlalchemy import String, Text, DateTime, ForeignKey, ForeignKeyConstraint, Enum as SQLEnum, UniqueConstraint, Boolean
+from sqlalchemy import String, Text, DateTime, ForeignKey, ForeignKeyConstraint, Enum as SQLEnum, UniqueConstraint, Boolean, Index, Integer, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -33,10 +33,16 @@ class AllocationReleaseReason(str, enum.Enum):
     QUOTA_REBALANCED = "QUOTA_REBALANCED"
 
 
+class CredentialStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    REVOKED = "REVOKED"
+
+
 class Device(Base):
     __tablename__ = "devices"
     __table_args__ = (
         UniqueConstraint("organization_id", "fingerprint", name="uq_org_device_fingerprint"),
+        UniqueConstraint("organization_id", "terminal_id", name="uq_org_terminal_id"),
         ForeignKeyConstraint(
             ["location_id", "organization_id"],
             ["locations.id", "locations.organization_id"],
@@ -55,6 +61,7 @@ class Device(Base):
         UUID(as_uuid=True), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g., "Terminal 01 - Cashier Counter"
+    terminal_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)  # Canonical logical terminal ID
     fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)  # Hardware machine-id/hash
     public_key: Mapped[str] = mapped_column(Text, nullable=False)  # Device's Ed25519 public key (Base64)
     status: Mapped[DeviceStatus] = mapped_column(
@@ -71,9 +78,52 @@ class Device(Base):
     licenses: Mapped[list["DeviceLicense"]] = relationship(
         "DeviceLicense", back_populates="device", cascade="all, delete-orphan", lazy="selectin"
     )
+    credentials: Mapped[list["DeviceCredential"]] = relationship(
+        "DeviceCredential", back_populates="device", cascade="all, delete-orphan", lazy="selectin"
+    )
     location: Mapped["app.domains.locations.models.Location | None"] = relationship(
         "Location", foreign_keys=[location_id], lazy="selectin"
     )
+
+
+class DeviceCredential(Base):
+    __tablename__ = "device_credentials"
+    __table_args__ = (
+        UniqueConstraint("device_id", "credential_version", name="uq_device_credential_version"),
+        Index(
+            "uq_device_active_credential",
+            "device_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+            sqlite_where=text("status = 'ACTIVE'"),
+        ),
+        Index(
+            "uq_active_credential_fingerprint",
+            "key_fingerprint",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+            sqlite_where=text("status = 'ACTIVE'"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    key_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    credential_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[CredentialStatus] = mapped_column(
+        SQLEnum(CredentialStatus, native_enum=False), default=CredentialStatus.ACTIVE, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    device: Mapped["Device"] = relationship("Device", back_populates="credentials")
 
 
 class DeviceChallenge(Base):
@@ -84,8 +134,40 @@ class DeviceChallenge(Base):
     )
     challenge_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     nonce: Mapped[str] = mapped_column(String(128), nullable=False)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    device_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    operation: Mapped[str | None] = mapped_column(String(32), nullable=True)  # ROTATE | RECOVER
+    expected_public_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
+class TerminalSecurityAudit(Base):
+    __tablename__ = "terminal_security_audits"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    terminal_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    previous_credential_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    new_credential_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    previous_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    new_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    installation_replacement_authorized: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
