@@ -19,12 +19,6 @@ class LocationApplicationStatus(str, enum.Enum):
     DEACTIVATED = "DEACTIVATED"
 
 
-class LocationPosModePolicy(str, enum.Enum):
-    ANY_ALLOWED = "ANY_ALLOWED"
-    LOCAL_ONLY = "LOCAL_ONLY"
-    CLOUD_ONLY = "CLOUD_ONLY"
-
-
 class Location(Base):
     __tablename__ = "locations"
     __table_args__ = (
@@ -59,14 +53,6 @@ class Location(Base):
         default=LocationStatus.ACTIVE,
         nullable=False,
     )
-    # POS deployment governance and defaults
-    pos_mode_policy: Mapped[LocationPosModePolicy] = mapped_column(
-        SQLEnum(LocationPosModePolicy, native_enum=False),
-        default=LocationPosModePolicy.ANY_ALLOWED,
-        nullable=False,
-    )
-    pos_default_mode: Mapped[str] = mapped_column(String(16), default="LOCAL", nullable=False)
-    pos_sync_allowed: Mapped[bool] = mapped_column(default=True, nullable=False)
 
     metadata_json: Mapped[dict | None] = mapped_column(
         "metadata", JSONB, nullable=True

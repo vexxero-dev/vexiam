@@ -114,21 +114,7 @@ async def test_menu_mode_governance_and_signed_license_entitlements(client: Asyn
     assert "menu_management.mode:local" in payload_dict["entitlements"]
     assert "menu_management.mode:cloud" not in payload_dict["entitlements"]
 
-    # 4. Enforce Location Policy to LOCAL_ONLY and attempt to switch terminal to CLOUD -> MUST FAIL (409)
-    from app.domains.locations.models import LocationPosModePolicy
-    loc.pos_mode_policy = LocationPosModePolicy.LOCAL_ONLY
-    await db.commit()
-
-    failed_switch = await client.post(
-        f"/api/v1/devices/{device.id}/menu-mode?mode=CLOUD"
-    )
-    assert failed_switch.status_code == 409
-    assert "LOCAL_ONLY" in failed_switch.json()["detail"]
-
-    # 5. Authoritatively relax Location Policy to ANY_ALLOWED, then switch terminal to CLOUD -> SUCCEEDS (200)
-    loc.pos_mode_policy = LocationPosModePolicy.ANY_ALLOWED
-    await db.commit()
-
+    # 4. Switch terminal to CLOUD -> SUCCEEDS (200)
     mode_switch_res = await client.post(
         f"/api/v1/devices/{device.id}/menu-mode?mode=CLOUD"
     )

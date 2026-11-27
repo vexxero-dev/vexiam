@@ -12,7 +12,6 @@ from app.domains.locations.schemas import (
     LocationResponse,
     LocationApplicationResponse,
     LocationApplicationEnableRequest,
-    LocationPosPolicyUpdateRequest,
 )
 from app.domains.locations.service import LocationService
 
@@ -144,24 +143,4 @@ async def deactivate_application_at_location(
         status=loc_app.status,
         activated_at=loc_app.activated_at,
         deactivated_at=loc_app.deactivated_at,
-    )
-
-
-@router.put(
-    "/locations/{location_id}/pos-policy",
-    response_model=LocationResponse,
-    summary="Update POS deployment policy and defaults for a location",
-)
-async def update_location_pos_policy(
-    location_id: uuid.UUID,
-    req: LocationPosPolicyUpdateRequest,
-    current_user: User = Depends(require_verified_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Authoritative PDP endpoint to configure location-level POS mode policy (ANY_ALLOWED, LOCAL_ONLY, CLOUD_ONLY),
-    default terminal operating mode (LOCAL vs CLOUD), and whether cloud sync is permitted.
-    """
-    return await LocationService.update_location_pos_policy(
-        db, location_id, current_user.id, req
     )

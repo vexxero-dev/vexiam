@@ -84,7 +84,6 @@ export interface ApplicationAssignment {
 
 export type LocationStatus = "ACTIVE" | "ARCHIVED";
 export type LocationApplicationStatus = "ACTIVE" | "DEACTIVATED";
-export type LocationPosModePolicy = "ANY_ALLOWED" | "LOCAL_ONLY" | "CLOUD_ONLY";
 
 export interface LocationApplication {
   id: string;
@@ -112,9 +111,6 @@ export interface Location {
   country_code?: string | null;
   timezone: string;
   status: LocationStatus;
-  pos_mode_policy: LocationPosModePolicy;
-  pos_default_mode: "LOCAL" | "CLOUD" | string;
-  pos_sync_allowed: boolean;
   metadata?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
@@ -148,11 +144,6 @@ export interface LocationUpdatePayload {
   status?: LocationStatus;
 }
 
-export interface LocationPosPolicyPayload {
-  pos_mode_policy?: LocationPosModePolicy;
-  pos_default_mode?: "LOCAL" | "CLOUD";
-  pos_sync_allowed?: boolean;
-}
 
 export type MainNavSection = 
   | "overview" 

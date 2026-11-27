@@ -22,8 +22,6 @@ import {
   Application,
   Location,
   LocationCreatePayload,
-  LocationPosModePolicy,
-  LocationPosPolicyPayload,
   LocationStatus,
   LocationUpdatePayload,
   Organization,
@@ -87,15 +85,6 @@ export function LocationManagementView({
     country_code: "",
     timezone: "UTC",
   });
-
-  // POS Policy Modal
-  const [policyLocation, setPolicyLocation] = useState<Location | null>(null);
-  const [policyState, setPolicyState] = useState<LocationPosPolicyPayload>({
-    pos_mode_policy: "ANY_ALLOWED",
-    pos_default_mode: "LOCAL",
-    pos_sync_allowed: true,
-  });
-  const [savingPolicy, setSavingPolicy] = useState(false);
 
   // Applications Modal
   const [appsLocation, setAppsLocation] = useState<Location | null>(null);
@@ -224,38 +213,6 @@ export function LocationManagementView({
           "Unable to archive location. Deactivate all active applications first."
         ),
       });
-    }
-  };
-
-  const openPolicyModal = (loc: Location) => {
-    setPolicyLocation(loc);
-    setPolicyState({
-      pos_mode_policy: loc.pos_mode_policy,
-      pos_default_mode: loc.pos_default_mode === "CLOUD" ? "CLOUD" : "LOCAL",
-      pos_sync_allowed: loc.pos_sync_allowed,
-    });
-  };
-
-  const handleSavePolicy = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!policyLocation) return;
-    setSavingPolicy(true);
-    setBanner(null);
-    try {
-      await locationsApi.updatePosPolicy(policyLocation.id, policyState);
-      setBanner({
-        type: "success",
-        message: `POS policy updated for "${policyLocation.name}".`,
-      });
-      setPolicyLocation(null);
-      await loadLocations();
-    } catch (err) {
-      setBanner({
-        type: "error",
-        message: getErrorMessage(err, "Failed to update POS policy."),
-      });
-    } finally {
-      setSavingPolicy(false);
     }
   };
 
@@ -443,14 +400,8 @@ export function LocationManagementView({
                     </span>
                   </div>
 
-                  {/* POS Policy & Apps summary */}
+                  {/* Apps summary */}
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <span className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300">
-                      POS Policy: <strong className="text-indigo-400">{loc.pos_mode_policy}</strong>
-                    </span>
-                    <span className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300">
-                      Default: <strong className="text-white">{loc.pos_default_mode}</strong>
-                    </span>
                     <span className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300">
                       Active Apps: <strong className="text-emerald-400">{activeApps.length}</strong>
                     </span>
@@ -465,13 +416,6 @@ export function LocationManagementView({
                   >
                     <Layers className="w-3.5 h-3.5 text-indigo-400" />
                     Apps ({activeApps.length})
-                  </button>
-                  <button
-                    onClick={() => openPolicyModal(loc)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition"
-                  >
-                    <Sliders className="w-3.5 h-3.5 text-amber-400" />
-                    POS Policy
                   </button>
                   <button
                     onClick={() => openEditModal(loc)}
@@ -649,95 +593,6 @@ export function LocationManagementView({
                   className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold disabled:opacity-50"
                 >
                   {saving ? "Saving..." : editingLocation ? "Save Changes" : "Create Location"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* POS Policy Modal */}
-      {policyLocation && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-white">
-                POS Policy — {policyLocation.name}
-              </h3>
-              <button
-                onClick={() => setPolicyLocation(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSavePolicy} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">
-                  Allowed Terminal Mode Policy
-                </label>
-                <select
-                  value={policyState.pos_mode_policy}
-                  onChange={(e) =>
-                    setPolicyState({
-                      ...policyState,
-                      pos_mode_policy: e.target.value as LocationPosModePolicy,
-                    })
-                  }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="ANY_ALLOWED">ANY_ALLOWED</option>
-                  <option value="LOCAL_ONLY">LOCAL_ONLY</option>
-                  <option value="CLOUD_ONLY">CLOUD_ONLY</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">
-                  Default Terminal Operating Mode
-                </label>
-                <select
-                  value={policyState.pos_default_mode}
-                  onChange={(e) =>
-                    setPolicyState({
-                      ...policyState,
-                      pos_default_mode: e.target.value as "LOCAL" | "CLOUD",
-                    })
-                  }
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="LOCAL">LOCAL</option>
-                  <option value="CLOUD">CLOUD</option>
-                </select>
-              </div>
-
-              <label className="flex items-center gap-2.5 text-sm text-slate-200 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!!policyState.pos_sync_allowed}
-                  onChange={(e) =>
-                    setPolicyState({ ...policyState, pos_sync_allowed: e.target.checked })
-                  }
-                  className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
-                />
-                Allow Cloud Sync for POS Terminals
-              </label>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setPolicyLocation(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-sm font-medium hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingPolicy}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold disabled:opacity-50"
-                >
-                  {savingPolicy ? "Saving..." : "Save Policy"}
                 </button>
               </div>
             </form>

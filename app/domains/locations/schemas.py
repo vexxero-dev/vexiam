@@ -2,13 +2,7 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Any
-from app.domains.locations.models import LocationStatus, LocationApplicationStatus, LocationPosModePolicy
-
-
-class LocationPosPolicyUpdateRequest(BaseModel):
-    pos_mode_policy: Optional[LocationPosModePolicy] = Field(None, description="Permissible terminal modes: ANY_ALLOWED, LOCAL_ONLY, CLOUD_ONLY")
-    pos_default_mode: Optional[str] = Field(None, description="Default POS operating mode for terminals: LOCAL or CLOUD")
-    pos_sync_allowed: Optional[bool] = Field(None, description="Whether POS terminals at this location may enable cloud sync")
+from app.domains.locations.models import LocationStatus, LocationApplicationStatus
 
 
 class LocationCreateRequest(BaseModel):
@@ -86,9 +80,6 @@ class LocationResponse(BaseModel):
     country_code: Optional[str] = None
     timezone: str
     status: LocationStatus
-    pos_mode_policy: LocationPosModePolicy = LocationPosModePolicy.ANY_ALLOWED
-    pos_default_mode: str = "LOCAL"
-    pos_sync_allowed: bool = True
     metadata: Optional[dict[str, Any]] = Field(None, validation_alias="metadata_json")
     created_at: datetime
     updated_at: datetime

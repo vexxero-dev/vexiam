@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, or_
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
-from app.domains.locations.models import Location, LocationStatus, LocationApplication, LocationApplicationStatus, LocationPosModePolicy
-from app.domains.locations.schemas import LocationCreateRequest, LocationUpdateRequest, LocationApplicationEnableRequest, LocationPosPolicyUpdateRequest
+from app.domains.locations.models import Location, LocationStatus, LocationApplication, LocationApplicationStatus
+from app.domains.locations.schemas import LocationCreateRequest, LocationUpdateRequest, LocationApplicationEnableRequest
 from app.domains.organizations.models import Organization, OrganizationMember, OrganizationRole
 from app.domains.applications.models import Application
 from app.domains.subscriptions.models import Subscription, Plan, SubscriptionStatus

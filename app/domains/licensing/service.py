@@ -22,7 +22,7 @@ from app.domains.licensing.models import (
 )
 from app.domains.applications.models import Application
 from app.domains.organizations.models import Organization, OrganizationMember, OrganizationRole
-from app.domains.locations.models import Location, LocationStatus, LocationApplication, LocationApplicationStatus, LocationPosModePolicy
+from app.domains.locations.models import Location, LocationStatus, LocationApplication, LocationApplicationStatus
 from app.domains.identity.sync_service import IdentitySyncService
 from app.domains.identity.sync_models import SyncEventType
 from app.domains.licensing.schemas import (
@@ -1930,34 +1930,8 @@ class CommercialAndLicensingService:
     @staticmethod
     def resolve_effective_terminal_mode(device: Device, location: Location | None = None) -> str:
         """
-        Authoritative PDP method to resolve effective POS mode for a terminal against location policy.
-        
-        Hierarchy:
-        - If location provides policy:
-          - Candidate mode is device.menu_mode IF set, ELSE location.pos_default_mode (defaulting to 'LOCAL')
-          - Candidate mode must be permitted by location.pos_mode_policy:
-            - LOCAL_ONLY: only LOCAL permitted. Candidate CLOUD raises 400.
-            - CLOUD_ONLY: only CLOUD permitted. Candidate LOCAL raises 400.
-            - ANY_ALLOWED: either is permitted.
-        - If unassigned to location:
-          - Candidate is device.menu_mode or 'LOCAL'.
+        Resolve effective POS mode for a terminal.
+        Returns device.menu_mode or 'LOCAL'.
         """
-        if not location:
-            return (device.menu_mode or "LOCAL").upper()
-
-        candidate_mode = (device.menu_mode or location.pos_default_mode or "LOCAL").upper()
-        policy = getattr(location, "pos_mode_policy", LocationPosModePolicy.ANY_ALLOWED)
-
-        if policy == LocationPosModePolicy.LOCAL_ONLY and candidate_mode != "LOCAL":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Location '{location.name}' enforces LOCAL_ONLY POS deployment policy. Terminal cannot operate in CLOUD mode.",
-            )
-        if policy == LocationPosModePolicy.CLOUD_ONLY and candidate_mode != "CLOUD":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Location '{location.name}' enforces CLOUD_ONLY POS deployment policy. Terminal cannot operate in LOCAL mode.",
-            )
-
-        return candidate_mode
+        return (device.menu_mode or "LOCAL").upper()
 

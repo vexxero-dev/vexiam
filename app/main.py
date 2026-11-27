@@ -46,11 +46,6 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS menu_mode VARCHAR(16) NULL;"))
         # Allow menu_mode column in devices to be nullable
         await conn.execute(text("ALTER TABLE devices ALTER COLUMN menu_mode DROP NOT NULL;"))
-
-        # Locations table POS policy columns
-        await conn.execute(text("ALTER TABLE locations ADD COLUMN IF NOT EXISTS pos_mode_policy VARCHAR(20) NOT NULL DEFAULT 'ANY_ALLOWED';"))
-        await conn.execute(text("ALTER TABLE locations ADD COLUMN IF NOT EXISTS pos_default_mode VARCHAR(16) NOT NULL DEFAULT 'LOCAL';"))
-        await conn.execute(text("ALTER TABLE locations ADD COLUMN IF NOT EXISTS pos_sync_allowed BOOLEAN NOT NULL DEFAULT TRUE;"))
     
     # Automatically seed official Vexxero ecosystem apps and default plans
     async with AsyncSessionLocal() as session:

@@ -3,7 +3,6 @@ import type {
   Location,
   LocationApplication,
   LocationCreatePayload,
-  LocationPosPolicyPayload,
   LocationStatus,
   LocationUpdatePayload,
 } from "@/types";
@@ -80,13 +79,6 @@ export const locationsApi = {
     const res = await api.delete<LocationApplication>(
       `/locations/${locationId}/applications/${applicationId}`
     );
-    return res.data;
-  },
-  updatePosPolicy: async (
-    locationId: string,
-    payload: LocationPosPolicyPayload
-  ): Promise<Location> => {
-    const res = await api.put<Location>(`/locations/${locationId}/pos-policy`, payload);
     return res.data;
   },
 };
