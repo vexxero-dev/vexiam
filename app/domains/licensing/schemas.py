@@ -237,8 +237,33 @@ class DeviceHeartbeatResponse(BaseModel):
     sync_enabled: bool = False
     menu_mode: Optional[str] = None
     effective_menu_mode: str = "LOCAL"
+    installation_id: Optional[uuid.UUID] = None
+    producer_epoch: Optional[int] = None
+    installation_status: Optional[str] = None
     message: str
     license: Optional["LicenseResponse"] = None
+
+
+class InstallationRegisterRequest(BaseModel):
+    installation_id: uuid.UUID
+    database_id: Optional[uuid.UUID] = None
+    credential_id: Optional[uuid.UUID] = None
+
+
+class InstallationRecoveryRequest(BaseModel):
+    new_installation_id: uuid.UUID
+    database_id: Optional[uuid.UUID] = None
+    credential_id: Optional[uuid.UUID] = None
+    reason: str = Field(default="INSTALLATION_RECOVERY", max_length=256)
+
+
+class InstallationRegisterResponse(BaseModel):
+    device_id: uuid.UUID
+    terminal_id: str
+    installation_id: uuid.UUID
+    producer_epoch: int
+    status: str
+    fenced_previous_count: int = 0
 
 
 class DeviceInternalVerificationResponse(BaseModel):

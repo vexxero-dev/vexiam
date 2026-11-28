@@ -38,6 +38,12 @@ class CredentialStatus(str, enum.Enum):
     REVOKED = "REVOKED"
 
 
+class InstallationStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    SUPERSEDED = "SUPERSEDED"
+    REVOKED = "REVOKED"
+
+
 class Device(Base):
     __tablename__ = "devices"
     __table_args__ = (
@@ -112,6 +118,9 @@ class DeviceCredential(Base):
     device_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    installation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("terminal_installations.installation_id", ondelete="SET NULL"), nullable=True, index=True
+    )
     public_key: Mapped[str] = mapped_column(Text, nullable=False)
     key_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     credential_version: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -124,6 +133,63 @@ class DeviceCredential(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     device: Mapped["Device"] = relationship("Device", back_populates="credentials")
+
+
+class TerminalInstallation(Base):
+    __tablename__ = "terminal_installations"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "installation_id", name="uq_org_installation_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    terminal_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    installation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), unique=True, nullable=False, index=True
+    )
+    database_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    status: Mapped[InstallationStatus] = mapped_column(
+        SQLEnum(InstallationStatus, native_enum=False), default=InstallationStatus.ACTIVE, nullable=False
+    )
+    current_epoch: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    fenced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fenced_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
+class ProducerEpoch(Base):
+    __tablename__ = "producer_epochs"
+    __table_args__ = (
+        UniqueConstraint("device_id", "epoch", name="uq_device_producer_epoch"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    installation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("terminal_installations.installation_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    epoch: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    allocated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    fenced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DeviceChallenge(Base):
@@ -158,6 +224,9 @@ class TerminalSecurityAudit(Base):
     device_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    installation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("terminal_installations.installation_id", ondelete="SET NULL"), nullable=True, index=True
+    )
     terminal_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -181,6 +250,9 @@ class DeviceLicense(Base):
     )
     device_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    installation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("terminal_installations.installation_id", ondelete="SET NULL"), nullable=True, index=True
     )
     application_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True

@@ -12,13 +12,17 @@ from fastapi import HTTPException, status
 from app.domains.subscriptions.models import Plan, Subscription, OwnerType, SubscriptionStatus
 from app.domains.licensing.models import (
     Device,
+    DeviceCredential,
     DeviceLicense,
     DeviceLicenseAllocation,
     DeviceChallenge,
+    TerminalInstallation,
+    ProducerEpoch,
     DeviceStatus,
     LicenseStatus,
     AllocationStatus,
     AllocationReleaseReason,
+    InstallationStatus,
 )
 from app.domains.applications.models import Application
 from app.domains.organizations.models import Organization, OrganizationMember, OrganizationRole
@@ -39,6 +43,9 @@ from app.domains.licensing.schemas import (
     LicensingAdminDashboardResponse,
     SubscriptionAllocationProvenance,
     DeviceLicenseAllocationSummary,
+    InstallationRegisterRequest,
+    InstallationRecoveryRequest,
+    InstallationRegisterResponse,
 )
 from app.core.security import _private_key, _public_key
 from app.core.config import settings
@@ -2287,6 +2294,138 @@ class CommercialAndLicensingService:
             "audit_id": audit.id,
         }
 
+    @staticmethod
+    async def register_installation(
+        db: AsyncSession,
+        device_id: uuid.UUID,
+        req: InstallationRegisterRequest,
+    ) -> InstallationRegisterResponse:
+        """Register or idempotently return an active installation and allocate its producer epoch."""
+        device = (
+            await db.execute(select(Device).where(Device.id == device_id).with_for_update())
+        ).scalar_one_or_none()
+        if not device:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+        existing = (
+            await db.execute(
+                select(TerminalInstallation).where(
+                    TerminalInstallation.installation_id == req.installation_id
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            if existing.device_id != device.id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Installation ID is already bound to a different device.",
+                )
+            return InstallationRegisterResponse(
+                device_id=device.id,
+                terminal_id=existing.terminal_id,
+                installation_id=existing.installation_id,
+                producer_epoch=existing.current_epoch,
+                status=existing.status.value,
+                fenced_previous_count=0,
+            )
+
+        max_epoch = (
+            await db.execute(
+                select(func.max(ProducerEpoch.epoch)).where(ProducerEpoch.device_id == device.id)
+            )
+        ).scalar() or 0
+        next_epoch = max_epoch + 1
+
+        now = datetime.now(timezone.utc)
+        # Fence any prior active installations & epochs for this device
+        prior_installs = (
+            await db.execute(
+                select(TerminalInstallation).where(
+                    and_(
+                        TerminalInstallation.device_id == device.id,
+                        TerminalInstallation.status == InstallationStatus.ACTIVE,
+                    )
+                )
+            )
+        ).scalars().all()
+        for inst in prior_installs:
+            inst.status = InstallationStatus.SUPERSEDED
+            inst.fenced_at = now
+            inst.fenced_reason = "SUPERSEDED_BY_NEW_INSTALLATION"
+
+        prior_epochs = (
+            await db.execute(
+                select(ProducerEpoch).where(
+                    and_(ProducerEpoch.device_id == device.id, ProducerEpoch.is_active == True)
+                )
+            )
+        ).scalars().all()
+        for ep in prior_epochs:
+            ep.is_active = False
+            ep.fenced_at = now
+
+        terminal_id = device.terminal_id or device.fingerprint
+        new_inst = TerminalInstallation(
+            organization_id=device.organization_id,
+            device_id=device.id,
+            terminal_id=terminal_id,
+            installation_id=req.installation_id,
+            database_id=req.database_id,
+            status=InstallationStatus.ACTIVE,
+            current_epoch=next_epoch,
+        )
+        db.add(new_inst)
+
+        new_epoch = ProducerEpoch(
+            organization_id=device.organization_id,
+            device_id=device.id,
+            installation_id=req.installation_id,
+            epoch=next_epoch,
+            is_active=True,
+        )
+        db.add(new_epoch)
+
+        if req.credential_id:
+            cred = (
+                await db.execute(
+                    select(DeviceCredential).where(
+                        and_(
+                            DeviceCredential.id == req.credential_id,
+                            DeviceCredential.device_id == device.id,
+                        )
+                    )
+                )
+            ).scalar_one_or_none()
+            if cred:
+                cred.installation_id = req.installation_id
+
+        await db.commit()
+        return InstallationRegisterResponse(
+            device_id=device.id,
+            terminal_id=terminal_id,
+            installation_id=req.installation_id,
+            producer_epoch=next_epoch,
+            status=InstallationStatus.ACTIVE.value,
+            fenced_previous_count=len(prior_installs),
+        )
+
+    @staticmethod
+    async def recover_installation(
+        db: AsyncSession,
+        device_id: uuid.UUID,
+        req: InstallationRecoveryRequest,
+    ) -> InstallationRegisterResponse:
+        """Recover a terminal with a new installation_id, allocating a new epoch and fencing old ones."""
+        return await CommercialAndLicensingService.register_installation(
+            db,
+            device_id,
+            InstallationRegisterRequest(
+                installation_id=req.new_installation_id,
+                database_id=req.database_id,
+                credential_id=req.credential_id,
+            ),
+        )
+
     @classmethod
     async def revoke_terminal(
         cls,
@@ -2349,3 +2488,135 @@ class CommercialAndLicensingService:
             "installation_replacement_authorized": False,
             "audit_id": audit.id,
         }
+
+    @staticmethod
+    async def register_installation(
+        db: AsyncSession,
+        device_id: uuid.UUID,
+        req: InstallationRegisterRequest,
+    ) -> InstallationRegisterResponse:
+        """Register or idempotently return an active installation and allocate its producer epoch."""
+        device = (
+            await db.execute(select(Device).where(Device.id == device_id).with_for_update())
+        ).scalar_one_or_none()
+        if not device:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+        existing = (
+            await db.execute(
+                select(TerminalInstallation).where(
+                    TerminalInstallation.installation_id == req.installation_id
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            if existing.device_id != device.id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Installation ID is already bound to a different device.",
+                )
+            return InstallationRegisterResponse(
+                device_id=device.id,
+                terminal_id=existing.terminal_id,
+                installation_id=existing.installation_id,
+                producer_epoch=existing.current_epoch,
+                status=existing.status.value,
+                fenced_previous_count=0,
+            )
+
+        max_epoch = (
+            await db.execute(
+                select(func.max(ProducerEpoch.epoch)).where(ProducerEpoch.device_id == device.id)
+            )
+        ).scalar() or 0
+        next_epoch = max_epoch + 1
+
+        now = datetime.now(timezone.utc)
+        # Fence any prior active installations & epochs for this device
+        prior_installs = (
+            await db.execute(
+                select(TerminalInstallation).where(
+                    and_(
+                        TerminalInstallation.device_id == device.id,
+                        TerminalInstallation.status == InstallationStatus.ACTIVE,
+                    )
+                )
+            )
+        ).scalars().all()
+        for inst in prior_installs:
+            inst.status = InstallationStatus.SUPERSEDED
+            inst.fenced_at = now
+            inst.fenced_reason = "SUPERSEDED_BY_NEW_INSTALLATION"
+
+        prior_epochs = (
+            await db.execute(
+                select(ProducerEpoch).where(
+                    and_(ProducerEpoch.device_id == device.id, ProducerEpoch.is_active == True)
+                )
+            )
+        ).scalars().all()
+        for ep in prior_epochs:
+            ep.is_active = False
+            ep.fenced_at = now
+
+        terminal_id = device.terminal_id or device.fingerprint
+        new_inst = TerminalInstallation(
+            organization_id=device.organization_id,
+            device_id=device.id,
+            terminal_id=terminal_id,
+            installation_id=req.installation_id,
+            database_id=req.database_id,
+            status=InstallationStatus.ACTIVE,
+            current_epoch=next_epoch,
+        )
+        db.add(new_inst)
+
+        new_epoch = ProducerEpoch(
+            organization_id=device.organization_id,
+            device_id=device.id,
+            installation_id=req.installation_id,
+            epoch=next_epoch,
+            is_active=True,
+        )
+        db.add(new_epoch)
+
+        if req.credential_id:
+            cred = (
+                await db.execute(
+                    select(DeviceCredential).where(
+                        and_(
+                            DeviceCredential.id == req.credential_id,
+                            DeviceCredential.device_id == device.id,
+                        )
+                    )
+                )
+            ).scalar_one_or_none()
+            if cred:
+                cred.installation_id = req.installation_id
+
+        await db.commit()
+        return InstallationRegisterResponse(
+            device_id=device.id,
+            terminal_id=terminal_id,
+            installation_id=req.installation_id,
+            producer_epoch=next_epoch,
+            status=InstallationStatus.ACTIVE.value,
+            fenced_previous_count=len(prior_installs),
+        )
+
+    @staticmethod
+    async def recover_installation(
+        db: AsyncSession,
+        device_id: uuid.UUID,
+        req: InstallationRecoveryRequest,
+    ) -> InstallationRegisterResponse:
+        """Recover a terminal with a new installation_id, allocating a new epoch and fencing old ones."""
+        return await CommercialAndLicensingService.register_installation(
+            db,
+            device_id,
+            InstallationRegisterRequest(
+                installation_id=req.new_installation_id,
+                database_id=req.database_id,
+                credential_id=req.credential_id,
+            ),
+        )

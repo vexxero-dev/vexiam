@@ -352,6 +352,34 @@ async def device_heartbeat(
     )
 
 
+@router.post(
+    "/devices/{device_id}/installations/register",
+    summary="Register terminal installation and allocate producer epoch",
+)
+async def register_terminal_installation(
+    device_id: uuid.UUID,
+    req: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.domains.licensing.schemas import InstallationRegisterRequest
+    parsed = InstallationRegisterRequest.model_validate(req)
+    return await CommercialAndLicensingService.register_installation(db, device_id, parsed)
+
+
+@router.post(
+    "/devices/{device_id}/installations/recover",
+    summary="Recover terminal with new installation_id and fence previous installations",
+)
+async def recover_terminal_installation(
+    device_id: uuid.UUID,
+    req: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.domains.licensing.schemas import InstallationRecoveryRequest
+    parsed = InstallationRecoveryRequest.model_validate(req)
+    return await CommercialAndLicensingService.recover_installation(db, device_id, parsed)
+
+
 # Internal Device Verification for VEX Ecosystem Gateways (e.g. VEXPOSCLOUD)
 @router.get(
     "/devices/internal/verify",
